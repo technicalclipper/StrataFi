@@ -1,10 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
-import { useContractWrite } from '@/hooks/useContracts'
+import { useContractWrite, useIsApprovedForAll } from '@/hooks/useContracts'
 import { CONTRACTS, MARKETPLACE_ABI, SHARE_TOKEN_ABI } from '@/lib/contracts'
-import { formatEther } from 'viem'
 import {
   Inbox,
   CheckCircle2,
@@ -12,6 +11,7 @@ import {
   Loader2,
   ExternalLink,
   Clock,
+  RefreshCw,
 } from 'lucide-react'
 
 type OfferData = {
@@ -20,44 +20,12 @@ type OfferData = {
   parcelName: string
   parcelId: number
   shares: number
-  pricePerShare: bigint
+  pricePerShare: string
+  pricePerShareFormatted: string
   expiry: number
-  totalValue: bigint
+  totalValue: string
+  totalValueFormatted: string
 }
-
-// Mock offers (in production, fetch from on-chain events via indexer)
-const MOCK_OFFERS: OfferData[] = [
-  {
-    offerId: 1,
-    buyer: '0xBuyer1234567890abcdef1234567890abcdef12',
-    parcelName: 'Whitefield Tech Park',
-    parcelId: 1,
-    shares: 15,
-    pricePerShare: BigInt('550000000000000000'),
-    expiry: Math.floor(Date.now() / 1000) + 72 * 3600,
-    totalValue: BigInt('8250000000000000000'),
-  },
-  {
-    offerId: 2,
-    buyer: '0xBuyer9876543210fedcba9876543210fedcba98',
-    parcelName: 'Koramangala Mixed-Use',
-    parcelId: 4,
-    shares: 5,
-    pricePerShare: BigInt('1300000000000000000'),
-    expiry: Math.floor(Date.now() / 1000) + 48 * 3600,
-    totalValue: BigInt('6500000000000000000'),
-  },
-  {
-    offerId: 3,
-    buyer: '0xBuyerABCDEF1234567890abcdef123456789012',
-    parcelName: 'Hebbal Lake View',
-    parcelId: 5,
-    shares: 30,
-    pricePerShare: BigInt('700000000000000000'),
-    expiry: Math.floor(Date.now() / 1000) + 12 * 3600,
-    totalValue: BigInt('21000000000000000000'),
-  },
-]
 
 function truncAddr(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
@@ -73,24 +41,87 @@ function timeRemaining(expiry: number): string {
 
 export function OfferInbox() {
   const { address, isConnected } = useAccount()
-  const [offers, setOffers] = useState(MOCK_OFFERS)
+  const [offers, setOffers] = useState<OfferData[]>([])
+  const [loading, setLoading] = useState(false)
   const [processingId, setProcessingId] = useState<number | null>(null)
   const [action, setAction] = useState<'accept' | 'reject' | null>(null)
 
+  const approveTx = useContractWrite()
   const acceptTx = useContractWrite()
   const rejectTx = useContractWrite()
+  const [pendingAcceptOffer, setPendingAcceptOffer] = useState<OfferData | null>(null)
+
+  const { data: isApproved, refetch: refetchApproval } = useIsApprovedForAll(
+    address,
+    CONTRACTS.marketplace as `0x${string}`,
+  )
+
+  const fetchOffers = useCallback(async () => {
+    if (!address) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/offers?holder=${address}`)
+      const data = await res.json()
+      if (Array.isArray(data)) setOffers(data)
+    } catch {
+      // keep current
+    } finally {
+      setLoading(false)
+    }
+  }, [address])
+
+  useEffect(() => {
+    if (isConnected && address) fetchOffers()
+  }, [isConnected, address, fetchOffers])
+
+  // Refetch after accept/reject succeeds
+  const activeTx = action === 'accept' ? acceptTx : rejectTx
+  useEffect(() => {
+    if (activeTx.isSuccess) {
+      const t = setTimeout(() => {
+        fetchOffers()
+        setProcessingId(null)
+        setAction(null)
+      }, 2000)
+      return () => clearTimeout(t)
+    }
+  }, [activeTx.isSuccess, fetchOffers])
 
   const handleAccept = (offer: OfferData) => {
     setProcessingId(offer.offerId)
     setAction('accept')
-    // First approve marketplace to transfer shares (if not already approved)
-    acceptTx.writeContract({
-      address: CONTRACTS.marketplace as `0x${string}`,
-      abi: MARKETPLACE_ABI,
-      functionName: 'acceptOffer',
-      args: [BigInt(offer.offerId)],
-    })
+    if (!isApproved) {
+      // Need to approve marketplace first, then accept
+      setPendingAcceptOffer(offer)
+      approveTx.writeContract({
+        address: CONTRACTS.shareToken as `0x${string}`,
+        abi: SHARE_TOKEN_ABI,
+        functionName: 'setApprovalForAll',
+        args: [CONTRACTS.marketplace as `0x${string}`, true],
+      })
+    } else {
+      acceptTx.writeContract({
+        address: CONTRACTS.marketplace as `0x${string}`,
+        abi: MARKETPLACE_ABI,
+        functionName: 'acceptOffer',
+        args: [BigInt(offer.offerId)],
+      })
+    }
   }
+
+  // After approval succeeds, auto-accept the pending offer
+  useEffect(() => {
+    if (approveTx.isSuccess && pendingAcceptOffer) {
+      refetchApproval()
+      acceptTx.writeContract({
+        address: CONTRACTS.marketplace as `0x${string}`,
+        abi: MARKETPLACE_ABI,
+        functionName: 'acceptOffer',
+        args: [BigInt(pendingAcceptOffer.offerId)],
+      })
+      setPendingAcceptOffer(null)
+    }
+  }, [approveTx.isSuccess])
 
   const handleReject = (offer: OfferData) => {
     setProcessingId(offer.offerId)
@@ -102,8 +133,6 @@ export function OfferInbox() {
       args: [BigInt(offer.offerId)],
     })
   }
-
-  const activeTx = action === 'accept' ? acceptTx : rejectTx
 
   if (!isConnected) {
     return (
@@ -125,9 +154,21 @@ export function OfferInbox() {
         <span className="ml-auto text-[10px] font-medium text-brand bg-brand-bg px-2 py-0.5 rounded-full">
           {offers.length}
         </span>
+        <button
+          onClick={fetchOffers}
+          disabled={loading}
+          className="text-text-tertiary hover:text-text-primary transition-colors"
+        >
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      {offers.length === 0 ? (
+      {loading && offers.length === 0 ? (
+        <div className="text-center py-8">
+          <Loader2 size={20} className="mx-auto mb-2 text-text-tertiary animate-spin" />
+          <div className="text-[12.5px] text-text-tertiary">Loading on-chain offers...</div>
+        </div>
+      ) : offers.length === 0 ? (
         <div className="text-center py-8">
           <Inbox size={24} className="mx-auto mb-2 text-text-tertiary" />
           <div className="text-[12.5px] text-text-tertiary">No pending offers</div>
@@ -137,7 +178,7 @@ export function OfferInbox() {
           {offers.map((offer) => {
             const isProcessing = processingId === offer.offerId
             const isPending =
-              isProcessing && (activeTx.isPending || activeTx.isConfirming)
+              isProcessing && (activeTx.isPending || activeTx.isConfirming || approveTx.isPending || approveTx.isConfirming)
 
             return (
               <div
@@ -178,7 +219,7 @@ export function OfferInbox() {
                       Price/Share
                     </div>
                     <div className="tnum text-[12.5px] text-text-primary">
-                      {formatEther(offer.pricePerShare)} MNT
+                      {offer.pricePerShareFormatted} MNT
                     </div>
                   </div>
                 </div>
@@ -189,7 +230,7 @@ export function OfferInbox() {
                     Total Value
                   </span>
                   <span className="tnum text-[14px] font-semibold text-up">
-                    {formatEther(offer.totalValue)} MNT
+                    {offer.totalValueFormatted} MNT
                   </span>
                 </div>
 
