@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { useAccount } from 'wagmi'
+import { ExternalLink as ExternalLinkIcon } from 'lucide-react'
 import { Upload, MapPin, Coins, Shield, Rocket, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { ConfidenceMeter } from '@/components/ConfidenceMeter'
 
@@ -16,7 +17,7 @@ const STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
 ]
 
 export function ListingWizard() {
-  const { isConnected } = useAccount()
+  const { address, isConnected } = useAccount()
   const [step, setStep] = useState<Step>('upload')
   const [deedFile, setDeedFile] = useState<File | null>(null)
   const [deedPreview, setDeedPreview] = useState<string | null>(null)
@@ -109,12 +110,41 @@ export function ListingWizard() {
     }
   }
 
+  const [mintResult, setMintResult] = useState<{
+    parcelId?: number
+    txHash?: string
+    explorerUrl?: string
+    error?: string
+  } | null>(null)
+
   const handleMint = async () => {
+    if (!address) return
     setMinting(true)
-    // Simulate minting delay (actual contract call would go here)
-    await new Promise((r) => setTimeout(r, 2000))
-    setMinting(false)
-    setMinted(true)
+    try {
+      const res = await fetch('/api/mint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seller: address,
+          geoHash: `${formData.lat},${formData.lng}`,
+          docHash: `${formData.surveyNo}-${formData.name}`,
+          confidenceScore: verificationResult?.confidenceScore || 85,
+          totalShares: parseInt(formData.totalShares),
+          pricePerShare: formData.pricePerShare,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setMintResult(data)
+        setMinted(true)
+      } else {
+        setMintResult({ error: data.error || 'Minting failed' })
+      }
+    } catch (err) {
+      setMintResult({ error: (err as Error).message })
+    } finally {
+      setMinting(false)
+    }
   }
 
   if (!isConnected) {
@@ -519,15 +549,25 @@ export function ListingWizard() {
               </div>
               <div className="text-[12.5px] text-text-secondary mb-4">
                 {formData.totalShares} shares of {formData.name} are now live.
+                {mintResult?.parcelId && (
+                  <span className="block mt-1 tnum font-mono text-[11px] text-text-tertiary">
+                    Parcel ID: {mintResult.parcelId}
+                  </span>
+                )}
               </div>
-              <a
-                href="https://sepolia.mantlescan.xyz"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-brand hover:text-brand-hover text-[12.5px] font-medium"
-              >
-                View on MantleScan &rarr;
-              </a>
+              {mintResult?.txHash && (
+                <a
+                  href={mintResult.explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-brand hover:text-brand-hover text-[12.5px] font-medium"
+                >
+                  View on MantleScan <ExternalLinkIcon size={12} />
+                </a>
+              )}
+              {mintResult?.error && (
+                <div className="text-[12.5px] text-down mt-2">{mintResult.error}</div>
+              )}
             </>
           ) : (
             <>

@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowLeft, Bot, Loader2, Send, Vote } from 'lucide-react'
+import { useAccount } from 'wagmi'
+import { ArrowLeft, Bot, Loader2, Send, Vote, CheckCircle2, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import type { ParcelData } from '@/lib/seed-parcels'
 import { Badge } from '@/components/Badge'
+import { useCreateOffer, useProposeBuyout, useShareBalance } from '@/hooks/useContracts'
 
 type Holder = {
   address: string
@@ -32,6 +34,13 @@ export function AcquisitionView({
   parcel: ParcelData
   holders: Holder[]
 }) {
+  const { address } = useAccount()
+  const offerTx = useCreateOffer()
+  const buyoutTx = useProposeBuyout()
+  const { data: myShares } = useShareBalance(parcel.id, address)
+  const myShareCount = Number(myShares || BigInt(0))
+  const myPct = (myShareCount / parcel.totalShares) * 100
+
   const [budget, setBudget] = useState('')
   const [loading, setLoading] = useState(false)
   const [strategy, setStrategy] = useState<{
@@ -88,8 +97,16 @@ export function AcquisitionView({
     }
   }
 
-  const handleSendOffer = (address: string) => {
-    setSentOffers((prev) => new Set([...prev, address]))
+  const handleSendOffer = (holderAddr: string, shares: number, price: number) => {
+    if (!address) return
+    offerTx.createOffer(parcel.id, holderAddr as `0x${string}`, shares, price)
+    setSentOffers((prev) => new Set([...prev, holderAddr]))
+  }
+
+  const handleProposeBuyout = () => {
+    if (!address || myPct < 51) return
+    const remainingShares = parcel.totalShares - myShareCount
+    buyoutTx.propose(parcel.id, parcel.pricePerShare, remainingShares)
   }
 
   return (
@@ -315,12 +332,14 @@ export function AcquisitionView({
                     </td>
                     <td className="px-3 py-2">
                       <button
-                        onClick={() => handleSendOffer(offer.address)}
-                        disabled={sentOffers.has(offer.address)}
+                        onClick={() => handleSendOffer(offer.address, offer.shares, offer.suggestedPrice)}
+                        disabled={sentOffers.has(offer.address) || offerTx.isPending}
                         className="text-[10px] font-medium text-brand hover:text-brand-hover disabled:text-text-tertiary inline-flex items-center gap-1 transition-colors"
                       >
                         {sentOffers.has(offer.address) ? (
-                          'Sent'
+                          <><CheckCircle2 size={10} /> Sent</>
+                        ) : offerTx.isPending ? (
+                          <><Loader2 size={10} className="animate-spin" /> ...</>
                         ) : (
                           <>
                             <Send size={10} /> Offer
@@ -346,12 +365,47 @@ export function AcquisitionView({
                 remaining holders are automatically paid your declared price.
               </p>
               <button
-                disabled
-                className="px-4 py-2 bg-brand text-white rounded-[var(--radius-sm)] text-[12.5px] font-medium opacity-50 cursor-not-allowed"
+                onClick={handleProposeBuyout}
+                disabled={myPct < 51 || buyoutTx.isPending || buyoutTx.isConfirming}
+                className="px-4 py-2 bg-brand text-white rounded-[var(--radius-sm)] text-[12.5px] font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-hover transition-colors inline-flex items-center gap-1.5"
               >
-                Propose Buyout (requires 51%+)
+                {buyoutTx.isPending || buyoutTx.isConfirming ? (
+                  <><Loader2 size={13} className="animate-spin" /> Submitting...</>
+                ) : buyoutTx.isSuccess ? (
+                  <><CheckCircle2 size={13} /> Buyout Proposed!</>
+                ) : (
+                  `Propose Buyout ${myPct >= 51 ? '' : '(requires 51%+)'}`
+                )}
               </button>
+              {myPct > 0 && (
+                <div className="text-[10px] text-text-tertiary mt-2 tnum">
+                  You hold {myShareCount} shares ({myPct.toFixed(1)}%)
+                </div>
+              )}
+              {buyoutTx.hash && (
+                <a
+                  href={`https://sepolia.mantlescan.xyz/tx/${buyoutTx.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] text-brand hover:text-brand-hover mt-1"
+                >
+                  View tx <ExternalLink size={10} />
+                </a>
+              )}
             </div>
+
+            {offerTx.hash && (
+              <div className="mt-3">
+                <a
+                  href={`https://sepolia.mantlescan.xyz/tx/${offerTx.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] text-brand hover:text-brand-hover"
+                >
+                  Last offer tx <ExternalLink size={10} />
+                </a>
+              </div>
+            )}
 
             <button
               onClick={() => setStrategy(null)}

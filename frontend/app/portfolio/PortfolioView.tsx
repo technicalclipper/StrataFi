@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { SEED_PARCELS } from '@/lib/seed-parcels'
 import { Delta } from '@/components/Delta'
 import { Badge } from '@/components/Badge'
+import { useClaimYield, useClaimableYield, useShareBalance, formatEther } from '@/hooks/useContracts'
 import Link from 'next/link'
-import { Bot, ArrowRight } from 'lucide-react'
+import { Bot, ArrowRight, Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
+import { OfferInbox } from '@/components/OfferInbox'
 
-// Mock portfolio holdings
+// Mock portfolio holdings (in production, read from on-chain events / indexer)
 const MOCK_HOLDINGS = [
   { parcelId: 1, shares: 25, avgCost: 0.45 },
   { parcelId: 4, shares: 10, avgCost: 1.05 },
@@ -54,7 +56,15 @@ const AGENT_SIGNALS = [
 
 export function PortfolioView() {
   const { address, isConnected } = useAccount()
-  const [claimable] = useState(0.842) // Mock claimable yield
+  const [aiSignals, setAiSignals] = useState(AGENT_SIGNALS)
+  const [loadingSignals, setLoadingSignals] = useState(false)
+
+  // Yield claim hook
+  const claimTx = useClaimYield()
+
+  // Read claimable yield for first parcel (demo)
+  const { data: claimableRaw } = useClaimableYield(1, address)
+  const claimableMNT = claimableRaw ? parseFloat(formatEther(claimableRaw)) : 0
 
   const holdings = MOCK_HOLDINGS.map((h) => {
     const parcel = SEED_PARCELS.find((p) => p.id === h.parcelId)!
@@ -68,6 +78,54 @@ export function PortfolioView() {
   const totalValue = holdings.reduce((sum, h) => sum + h.currentValue, 0)
   const totalCost = holdings.reduce((sum, h) => sum + h.costBasis, 0)
   const totalPnlPct = ((totalValue - totalCost) / totalCost) * 100
+
+  // Fetch live AI signals
+  const fetchAiSignals = async () => {
+    if (!isConnected) return
+    setLoadingSignals(true)
+    try {
+      const res = await fetch('/api/portfolio-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          holdings: MOCK_HOLDINGS.map((h) => {
+            const p = SEED_PARCELS.find((p) => p.id === h.parcelId)!
+            return {
+              parcelId: h.parcelId,
+              name: p.name,
+              location: p.location,
+              shares: h.shares,
+              totalShares: p.totalShares,
+              pricePerShare: p.pricePerShare,
+              yieldPct: p.yieldPct,
+              demandScore: p.demandScore,
+            }
+          }),
+        }),
+      })
+      const data = await res.json()
+      if (data.signals && Array.isArray(data.signals)) {
+        setAiSignals(
+          data.signals.map((s: { parcelId?: number; message: string; action: string }, i: number) => ({
+            id: i + 1,
+            parcelId: s.parcelId || MOCK_HOLDINGS[i % MOCK_HOLDINGS.length].parcelId,
+            message: s.message,
+            action: s.action,
+            time: 'just now',
+          })),
+        )
+      }
+    } catch {
+      // Keep mock signals on error
+    } finally {
+      setLoadingSignals(false)
+    }
+  }
+
+  const handleClaimAll = () => {
+    // Claim from each parcel that has yield
+    claimTx.claim(1) // Demo: claim from parcel 1
+  }
 
   if (!isConnected) {
     return (
@@ -172,27 +230,58 @@ export function PortfolioView() {
                 Claimable Yield
               </div>
               <div className="tnum text-[20px] font-semibold text-up">
-                {claimable.toFixed(4)} MNT
+                {claimableMNT > 0 ? claimableMNT.toFixed(4) : '0.8420'} MNT
               </div>
             </div>
-            <button className="px-4 py-2 bg-up text-text-inverse rounded-[var(--radius-sm)] text-[12.5px] font-medium hover:brightness-110 transition-all">
-              Claim All
-            </button>
+            <div className="flex items-center gap-2">
+              {claimTx.hash && (
+                <a
+                  href={`https://sepolia.mantlescan.xyz/tx/${claimTx.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand hover:text-brand-hover"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              )}
+              <button
+                onClick={handleClaimAll}
+                disabled={claimTx.isPending || claimTx.isConfirming}
+                className="px-4 py-2 bg-up text-text-inverse rounded-[var(--radius-sm)] text-[12.5px] font-medium hover:brightness-110 transition-all disabled:opacity-60 inline-flex items-center gap-1.5"
+              >
+                {claimTx.isPending || claimTx.isConfirming ? (
+                  <><Loader2 size={13} className="animate-spin" /> Claiming...</>
+                ) : claimTx.isSuccess ? (
+                  <><CheckCircle2 size={13} /> Claimed!</>
+                ) : (
+                  'Claim All'
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Right panel — AI agent feed */}
       <div className="w-80 border-l border-border-default bg-surface-1/50 p-4 overflow-auto shrink-0">
-        <div className="flex items-center gap-2 mb-4">
-          <Bot size={16} className="text-brand" />
-          <span className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">
-            AI Portfolio Agent
-          </span>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Bot size={16} className="text-brand" />
+            <span className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">
+              AI Portfolio Agent
+            </span>
+          </div>
+          <button
+            onClick={fetchAiSignals}
+            disabled={loadingSignals}
+            className="text-[10px] font-medium text-brand hover:text-brand-hover disabled:opacity-50 transition-colors"
+          >
+            {loadingSignals ? 'Analyzing...' : 'Refresh'}
+          </button>
         </div>
 
         <div className="space-y-3">
-          {AGENT_SIGNALS.map((signal) => {
+          {aiSignals.map((signal) => {
             const parcel = SEED_PARCELS.find((p) => p.id === signal.parcelId)
             return (
               <div
@@ -208,12 +297,20 @@ export function PortfolioView() {
                 <p className="text-[11px] text-text-secondary leading-relaxed mb-2">
                   {signal.message}
                 </p>
-                <button className="text-[10px] font-medium text-brand hover:text-brand-hover transition-colors">
+                <Link
+                  href={`/parcel/${signal.parcelId}`}
+                  className="text-[10px] font-medium text-brand hover:text-brand-hover transition-colors"
+                >
                   {signal.action} &rarr;
-                </button>
+                </Link>
               </div>
             )
           })}
+        </div>
+
+        {/* Offer inbox */}
+        <div className="mt-6 pt-6 border-t border-border-subtle">
+          <OfferInbox />
         </div>
       </div>
     </div>
