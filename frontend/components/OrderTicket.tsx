@@ -9,7 +9,7 @@ import { Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
 
 type Tab = 'buy' | 'offer' | 'sell'
 
-export function OrderTicket({ parcel }: { parcel: ParcelData }) {
+export function OrderTicket({ parcel, onSuccess }: { parcel: ParcelData; onSuccess?: () => void }) {
   const { address, isConnected } = useAccount()
   const [tab, setTab] = useState<Tab>('buy')
   const [shares, setShares] = useState(1)
@@ -60,6 +60,15 @@ export function OrderTicket({ parcel }: { parcel: ParcelData }) {
       listTx.createListing(parcel.id, shares, parcel.pricePerShare)
     }
   }, [approveTx.isSuccess])
+
+  // Refetch parcel data after a successful buy/offer/list
+  useEffect(() => {
+    if (activeTx.isSuccess && onSuccess) {
+      // Small delay to let the chain state settle
+      const t = setTimeout(() => onSuccess(), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [activeTx.isSuccess, onSuccess])
 
   const buttonLabel = () => {
     if (!isConnected) return 'Connect Wallet'

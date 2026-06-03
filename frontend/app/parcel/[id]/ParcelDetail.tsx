@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, MapPin } from 'lucide-react'
 import type { ParcelData } from '@/lib/seed-parcels'
@@ -16,12 +17,50 @@ type Holder = {
 }
 
 export function ParcelDetail({
-  parcel,
-  holders,
+  parcel: initialParcel,
+  holders: initialHolders,
 }: {
   parcel: ParcelData
   holders: Holder[]
 }) {
+  const [parcel, setParcel] = useState(initialParcel)
+  const [holders, setHolders] = useState(initialHolders)
+
+  // Fetch live on-chain data (availableShares + real holder addresses)
+  const refetchParcel = useCallback(async () => {
+    try {
+      const [parcelsRes, holdersRes] = await Promise.all([
+        fetch('/api/parcels'),
+        fetch(`/api/holders?parcelId=${initialParcel.id}`),
+      ])
+      const parcels = await parcelsRes.json()
+      const holdersData = await holdersRes.json()
+
+      if (Array.isArray(parcels)) {
+        const live = parcels.find((p: ParcelData) => p.id === initialParcel.id)
+        if (live) setParcel(live)
+      }
+
+      if (Array.isArray(holdersData) && holdersData.length > 0) {
+        const totalShares = initialParcel.totalShares
+        setHolders(
+          holdersData.map((h: { address: string; shares: number }) => ({
+            address: h.address,
+            shares: h.shares,
+            percentage: (h.shares / totalShares) * 100,
+          })),
+        )
+      }
+    } catch {
+      // Keep current data on error
+    }
+  }, [initialParcel.id, initialParcel.totalShares])
+
+  // Fetch live data on mount
+  useEffect(() => {
+    refetchParcel()
+  }, [refetchParcel])
+
   // Mock price history for sparkline area
   const mockPriceChange = ((parcel.demandScore - 3) / 3) * 12.5
 
@@ -203,7 +242,7 @@ export function ParcelDetail({
 
       {/* Right — context panel (order ticket) */}
       <div className="w-80 border-l border-border-default bg-surface-1/50 p-4 overflow-auto shrink-0">
-        <OrderTicket parcel={parcel} />
+        <OrderTicket parcel={parcel} onSuccess={refetchParcel} />
 
         {/* Quick acquire CTA */}
         <Link
