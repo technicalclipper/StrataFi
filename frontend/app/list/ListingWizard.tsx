@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { ExternalLink as ExternalLinkIcon } from 'lucide-react'
 import { Upload, MapPin, Coins, Shield, Rocket, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
@@ -126,6 +126,12 @@ export function ListingWizard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           seller: address,
+          name: formData.name,
+          lat: formData.lat,
+          lng: formData.lng,
+          area: formData.area,
+          landType: formData.landType,
+          surveyNo: formData.surveyNo,
           geoHash: `${formData.lat},${formData.lng}`,
           docHash: `${formData.surveyNo}-${formData.name}`,
           confidenceScore: verificationResult?.confidenceScore || 85,
@@ -299,61 +305,14 @@ export function ListingWizard() {
 
       {/* Step: Location */}
       {step === 'location' && (
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-6">
-          <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-4">
-            Parcel Location & Boundary
-          </div>
-          <div className="h-64 bg-bg-sunken rounded-[var(--radius-sm)] flex items-center justify-center mb-4 border border-border-subtle">
-            <span className="text-[12.5px] text-text-tertiary">
-              Map boundary drawing — enter coordinates below for demo
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
-                Latitude
-              </label>
-              <input
-                value={formData.lat}
-                onChange={(e) => setFormData({ ...formData, lat: e.target.value })}
-                type="number"
-                step="0.0001"
-                className="w-full bg-bg-sunken border border-border-default rounded-[var(--radius-sm)] px-3 py-2 text-[14px] text-text-primary font-mono outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                placeholder="12.9698"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
-                Longitude
-              </label>
-              <input
-                value={formData.lng}
-                onChange={(e) => setFormData({ ...formData, lng: e.target.value })}
-                type="number"
-                step="0.0001"
-                className="w-full bg-bg-sunken border border-border-default rounded-[var(--radius-sm)] px-3 py-2 text-[14px] text-text-primary font-mono outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                placeholder="77.7506"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={() => setStep('upload')}
-              className="flex-1 py-2.5 border border-border-default text-text-secondary rounded-[var(--radius-sm)] text-[14px] font-medium hover:bg-surface-3 transition-colors"
-            >
-              Back
-            </button>
-            <button
-              onClick={() => setStep('shares')}
-              disabled={!formData.lat || !formData.lng}
-              className="flex-1 py-2.5 bg-brand text-white rounded-[var(--radius-sm)] text-[14px] font-medium hover:bg-brand-hover disabled:bg-surface-2 disabled:text-text-tertiary transition-colors"
-            >
-              Next: Set Shares
-            </button>
-          </div>
-        </div>
+        <LocationStep
+          lat={formData.lat}
+          lng={formData.lng}
+          areaSqFt={parseFloat(formData.area) || 10000}
+          onUpdate={(lat, lng) => setFormData({ ...formData, lat, lng })}
+          onBack={() => setStep('upload')}
+          onNext={() => setStep('shares')}
+        />
       )}
 
       {/* Step: Shares & Price */}
@@ -594,6 +553,246 @@ export function ListingWizard() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Interactive map for boundary drawing ───
+function LocationStep({
+  lat,
+  lng,
+  areaSqFt,
+  onUpdate,
+  onBack,
+  onNext,
+}: {
+  lat: string
+  lng: string
+  areaSqFt: number
+  onUpdate: (lat: string, lng: string) => void
+  onBack: () => void
+  onNext: () => void
+}) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
+
+  // Compute a boundary rectangle from center + area
+  const getBoundaryPolygon = useCallback(
+    (cLat: number, cLng: number): [number, number][] => {
+      // Approximate side length from area in sq ft -> degrees
+      const sideFt = Math.sqrt(areaSqFt)
+      const sideDegLat = sideFt / 364000 // ~1 deg lat ≈ 364,000 ft
+      const sideDegLng = sideFt / (364000 * Math.cos((cLat * Math.PI) / 180))
+      const half = { lat: sideDegLat / 2, lng: sideDegLng / 2 }
+      return [
+        [cLng - half.lng, cLat - half.lat],
+        [cLng + half.lng, cLat - half.lat],
+        [cLng + half.lng, cLat + half.lat],
+        [cLng - half.lng, cLat + half.lat],
+        [cLng - half.lng, cLat - half.lat],
+      ]
+    },
+    [areaSqFt],
+  )
+
+  const updateMapBoundary = useCallback(
+    (map: maplibregl.Map, cLat: number, cLng: number) => {
+      const polygon = getBoundaryPolygon(cLat, cLng)
+      const geojson = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: { type: 'Polygon' as const, coordinates: [polygon] },
+      }
+
+      const src = map.getSource('boundary') as maplibregl.GeoJSONSource | undefined
+      if (src) {
+        src.setData(geojson as GeoJSON.Feature)
+      }
+    },
+    [getBoundaryPolygon],
+  )
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
+
+    // Dynamic import to avoid SSR issues
+    import('maplibre-gl').then((maplibregl) => {
+      const initLat = parseFloat(lat) || 12.9698
+      const initLng = parseFloat(lng) || 77.7506
+
+      const map = new maplibregl.default.Map({
+        container: mapContainerRef.current!,
+        style: {
+          version: 8,
+          sources: {
+            carto: {
+              type: 'raster',
+              tiles: [
+                'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              ],
+              tileSize: 256,
+            },
+          },
+          layers: [{ id: 'carto', type: 'raster', source: 'carto' }],
+        },
+        center: [initLng, initLat],
+        zoom: 15,
+      })
+
+      mapRef.current = map
+
+      map.on('load', () => {
+        // Add boundary source + layers
+        map.addSource('boundary', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Polygon', coordinates: [[]] },
+          },
+        })
+        map.addLayer({
+          id: 'boundary-fill',
+          type: 'fill',
+          source: 'boundary',
+          paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.15 },
+        })
+        map.addLayer({
+          id: 'boundary-line',
+          type: 'line',
+          source: 'boundary',
+          paint: {
+            'line-color': '#2563eb',
+            'line-width': 2,
+            'line-dasharray': [2, 2],
+          },
+        })
+
+        // If we have initial coords, draw boundary
+        if (lat && lng) {
+          updateMapBoundary(map, initLat, initLng)
+        }
+      })
+
+      // Add draggable marker
+      const marker = new maplibregl.default.Marker({
+        color: '#2563eb',
+        draggable: true,
+      })
+        .setLngLat([initLng, initLat])
+        .addTo(map)
+
+      markerRef.current = marker
+
+      // Update on marker drag
+      marker.on('dragend', () => {
+        const pos = marker.getLngLat()
+        onUpdate(pos.lat.toFixed(6), pos.lng.toFixed(6))
+        updateMapBoundary(map, pos.lat, pos.lng)
+      })
+
+      // Click to move marker
+      map.on('click', (e: { lngLat: { lng: number; lat: number } }) => {
+        marker.setLngLat([e.lngLat.lng, e.lngLat.lat])
+        onUpdate(e.lngLat.lat.toFixed(6), e.lngLat.lng.toFixed(6))
+        updateMapBoundary(map, e.lngLat.lat, e.lngLat.lng)
+      })
+
+      // Set initial coords if empty
+      if (!lat || !lng) {
+        onUpdate(initLat.toFixed(6), initLng.toFixed(6))
+      }
+    })
+
+    return () => {
+      mapRef.current?.remove()
+      mapRef.current = null
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-6">
+      <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-4">
+        Parcel Location & Boundary
+      </div>
+
+      {/* Interactive map */}
+      <div
+        ref={mapContainerRef}
+        className="h-72 rounded-[var(--radius-sm)] mb-3 border border-border-subtle overflow-hidden"
+      />
+
+      <div className="text-[10px] text-text-tertiary mb-4">
+        Click on the map or drag the pin to set your parcel location. The
+        boundary rectangle is auto-calculated from the area you entered.
+      </div>
+
+      {/* Coordinate readout */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
+            Latitude
+          </label>
+          <input
+            value={lat}
+            onChange={(e) => {
+              onUpdate(e.target.value, lng)
+              const newLat = parseFloat(e.target.value)
+              const newLng = parseFloat(lng)
+              if (!isNaN(newLat) && !isNaN(newLng) && mapRef.current) {
+                markerRef.current?.setLngLat([newLng, newLat])
+                mapRef.current.flyTo({ center: [newLng, newLat] })
+                updateMapBoundary(mapRef.current, newLat, newLng)
+              }
+            }}
+            type="number"
+            step="0.0001"
+            className="w-full bg-bg-sunken border border-border-default rounded-[var(--radius-sm)] px-3 py-2 text-[14px] text-text-primary font-mono outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            placeholder="12.9698"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
+            Longitude
+          </label>
+          <input
+            value={lng}
+            onChange={(e) => {
+              onUpdate(lat, e.target.value)
+              const newLat = parseFloat(lat)
+              const newLng = parseFloat(e.target.value)
+              if (!isNaN(newLat) && !isNaN(newLng) && mapRef.current) {
+                markerRef.current?.setLngLat([newLng, newLat])
+                mapRef.current.flyTo({ center: [newLng, newLat] })
+                updateMapBoundary(mapRef.current, newLat, newLng)
+              }
+            }}
+            type="number"
+            step="0.0001"
+            className="w-full bg-bg-sunken border border-border-default rounded-[var(--radius-sm)] px-3 py-2 text-[14px] text-text-primary font-mono outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            placeholder="77.7506"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-3 mt-6">
+        <button
+          onClick={onBack}
+          className="flex-1 py-2.5 border border-border-default text-text-secondary rounded-[var(--radius-sm)] text-[14px] font-medium hover:bg-surface-3 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!lat || !lng}
+          className="flex-1 py-2.5 bg-brand text-white rounded-[var(--radius-sm)] text-[14px] font-medium hover:bg-brand-hover disabled:bg-surface-2 disabled:text-text-tertiary transition-colors"
+        >
+          Next: Set Shares
+        </button>
+      </div>
     </div>
   )
 }

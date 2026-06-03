@@ -1,9 +1,9 @@
 /**
  * POST /api/mint
  * Server-side minting — registers parcel + mints shares on Mantle Sepolia
- * Uses the deployer private key (authorized verifier + minter)
+ * Also saves off-chain metadata (name, coords, etc.) to data/parcels.json
  *
- * Input: { seller, geoHash, docHash, confidenceScore, totalShares }
+ * Input: { seller, name, lat, lng, area, landType, surveyNo, geoHash, docHash, confidenceScore, totalShares, pricePerShare }
  * Output: { success, parcelId, txHash, explorerUrl }
  */
 
@@ -12,13 +12,31 @@ import { createWalletClient, createPublicClient, http, keccak256, toBytes } from
 import { privateKeyToAccount } from 'viem/accounts'
 import { mantleSepoliaTestnet } from 'viem/chains'
 import { CONTRACTS, PARCEL_REGISTRY_ABI, SHARE_TOKEN_ABI, MARKETPLACE_ABI } from '@/lib/contracts'
+import { readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
 
 const RPC_URL = 'https://rpc.sepolia.mantle.xyz'
+const PARCELS_FILE = join(process.cwd(), 'data', 'parcels.json')
+
+function readParcels(): unknown[] {
+  try {
+    return JSON.parse(readFileSync(PARCELS_FILE, 'utf-8'))
+  } catch {
+    return []
+  }
+}
+
+function writeParcels(parcels: unknown[]) {
+  writeFileSync(PARCELS_FILE, JSON.stringify(parcels, null, 2))
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { seller, geoHash, docHash, confidenceScore, totalShares, pricePerShare } = body
+    const {
+      seller, name, lat, lng, area, landType, surveyNo,
+      geoHash, docHash, confidenceScore, totalShares, pricePerShare,
+    } = body
 
     const pk = process.env.DEPLOYER_PRIVATE_KEY
     if (!pk) {
@@ -36,9 +54,10 @@ export async function POST(request: NextRequest) {
       transport: http(RPC_URL),
     })
 
-    // Hash the geo and doc strings into bytes32
-    const geoBytes = keccak256(toBytes(geoHash || 'geo-default'))
-    const docBytes = keccak256(toBytes(docHash || 'doc-default'))
+    const geoStr = geoHash || `${lat},${lng}`
+    const docStr = docHash || `${surveyNo}-${name}`
+    const geoBytes = keccak256(toBytes(geoStr))
+    const docBytes = keccak256(toBytes(docStr))
 
     // 1. Register parcel on ParcelRegistry
     const registerHash = await walletClient.writeContract({
@@ -56,11 +75,9 @@ export async function POST(request: NextRequest) {
 
     const registerReceipt = await publicClient.waitForTransactionReceipt({ hash: registerHash })
 
-    // Extract parcelId from the ParcelRegistered event
     const registeredEvent = registerReceipt.logs.find(
       (log) => log.address.toLowerCase() === CONTRACTS.parcelRegistry.toLowerCase(),
     )
-    // The parcelId is the first indexed topic (after event signature)
     const parcelId = registeredEvent?.topics[1]
       ? parseInt(registeredEvent.topics[1], 16)
       : 1
@@ -75,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     await publicClient.waitForTransactionReceipt({ hash: mintHash })
 
-    // 3. Create primary sale on marketplace (so buyers can buy immediately)
+    // 3. Create primary sale on marketplace
     if (pricePerShare) {
       const priceBigInt = BigInt(Math.floor(parseFloat(pricePerShare) * 1e18))
       const primaryHash = await walletClient.writeContract({
@@ -86,6 +103,50 @@ export async function POST(request: NextRequest) {
       })
       await publicClient.waitForTransactionReceipt({ hash: primaryHash })
     }
+
+    // 4. Save off-chain metadata
+    const latNum = parseFloat(lat) || 12.97
+    const lngNum = parseFloat(lng) || 77.65
+    const areaNum = parseFloat(area) || 10000
+    const priceNum = parseFloat(pricePerShare) || 0.5
+
+    // Generate polygon from center + area
+    const sideFt = Math.sqrt(areaNum)
+    const dLat = sideFt / 364000 / 2
+    const dLng = sideFt / (364000 * Math.cos((latNum * Math.PI) / 180)) / 2
+
+    const parcelMeta = {
+      id: parcelId,
+      name: name || `Parcel #${parcelId}`,
+      location: `${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
+      coordinates: [lngNum, latNum],
+      polygon: [
+        [lngNum - dLng, latNum - dLat],
+        [lngNum + dLng, latNum - dLat],
+        [lngNum + dLng, latNum + dLat],
+        [lngNum - dLng, latNum + dLat],
+        [lngNum - dLng, latNum - dLat],
+      ],
+      totalShares: parseInt(totalShares) || 100,
+      availableShares: parseInt(totalShares) || 100,
+      pricePerShare: priceNum,
+      yieldPct: 0,
+      demandScore: 3,
+      confidenceScore: confidenceScore || 85,
+      verified: true,
+      seller: seller,
+      landType: landType || 'residential',
+      areaSqFt: areaNum,
+      docHash: docBytes.slice(0, 14),
+      geoHash: geoBytes.slice(0, 14),
+      surveyNo: surveyNo || '',
+      txHash: registerHash,
+      mintedAt: new Date().toISOString(),
+    }
+
+    const parcels = readParcels()
+    parcels.push(parcelMeta)
+    writeParcels(parcels)
 
     return NextResponse.json({
       success: true,

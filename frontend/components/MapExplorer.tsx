@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { SEED_PARCELS, type ParcelData } from '@/lib/seed-parcels'
+import type { ParcelData } from '@/lib/seed-parcels'
 import { useRouter } from 'next/navigation'
 
 type OverlayMode = 'demand' | 'ownership' | 'yield'
@@ -18,7 +18,7 @@ const HEAT_COLORS: Record<number, string> = {
 }
 
 function getDemandColor(parcel: ParcelData): string {
-  return HEAT_COLORS[parcel.demandScore] || HEAT_COLORS[0]
+  return HEAT_COLORS[parcel.demandScore] || HEAT_COLORS[3]
 }
 
 function getOwnershipColor(parcel: ParcelData): string {
@@ -46,10 +46,10 @@ function getColor(parcel: ParcelData, mode: OverlayMode): string {
   }
 }
 
-function buildGeoJSON(mode: OverlayMode) {
+function buildGeoJSON(parcels: ParcelData[], mode: OverlayMode) {
   return {
     type: 'FeatureCollection' as const,
-    features: SEED_PARCELS.map((p) => ({
+    features: parcels.map((p) => ({
       type: 'Feature' as const,
       id: p.id,
       properties: {
@@ -80,18 +80,29 @@ export function MapExplorer() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [mode, setMode] = useState<OverlayMode>('demand')
+  const [parcels, setParcels] = useState<ParcelData[]>([])
   const [hoveredParcel, setHoveredParcel] = useState<ParcelData | null>(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [cursorCoords, setCursorCoords] = useState({ lng: 0, lat: 0 })
   const router = useRouter()
 
+  // Fetch parcels from API
+  useEffect(() => {
+    fetch('/api/parcels')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setParcels(data)
+      })
+      .catch(() => {})
+  }, [])
+
   const updateSource = useCallback(
-    (m: OverlayMode) => {
+    (m: OverlayMode, data: ParcelData[]) => {
       const map = mapRef.current
       if (!map) return
       const source = map.getSource('parcels') as maplibregl.GeoJSONSource | undefined
       if (source) {
-        source.setData(buildGeoJSON(m))
+        source.setData(buildGeoJSON(data, m))
       }
     },
     []
@@ -138,7 +149,7 @@ export function MapExplorer() {
     map.on('load', () => {
       map.addSource('parcels', {
         type: 'geojson',
-        data: buildGeoJSON(mode),
+        data: buildGeoJSON(parcels, mode),
       })
 
       map.addLayer({
@@ -194,8 +205,9 @@ export function MapExplorer() {
         hoveredId = e.features[0].id as number
         map.setFeatureState({ source: 'parcels', id: hoveredId }, { hover: true })
         map.getCanvas().style.cursor = 'pointer'
-        const parcel = SEED_PARCELS.find((p) => p.id === hoveredId)
-        if (parcel) setHoveredParcel(parcel)
+        const pid = e.features[0].properties?.id
+        const p = parcels.find((p) => p.id === pid)
+        if (p) setHoveredParcel(p)
       }
     })
 
@@ -229,9 +241,19 @@ export function MapExplorer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Update map when parcels load or mode changes
   useEffect(() => {
-    updateSource(mode)
-  }, [mode, updateSource])
+    updateSource(mode, parcels)
+
+    // Fly to first parcel if any
+    if (parcels.length > 0 && mapRef.current) {
+      const first = parcels[0]
+      const coords = first.coordinates as [number, number]
+      if (coords[0] && coords[1]) {
+        mapRef.current.flyTo({ center: coords, zoom: 13 })
+      }
+    }
+  }, [mode, parcels, updateSource])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -253,6 +275,18 @@ export function MapExplorer() {
           </button>
         ))}
       </div>
+
+      {/* Parcel count */}
+      {parcels.length === 0 && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-surface-2/90 backdrop-blur-sm border border-border-default rounded-[var(--radius-md)] px-4 py-2">
+          <span className="text-[12.5px] text-text-secondary">
+            No parcels minted yet.{' '}
+            <a href="/list" className="text-brand hover:text-brand-hover">
+              List one &rarr;
+            </a>
+          </span>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-surface-2/90 backdrop-blur-sm border border-border-default rounded-[var(--radius-md)] p-3">
@@ -295,7 +329,7 @@ export function MapExplorer() {
             </span>
             <span
               className="tnum"
-              style={{ color: HEAT_COLORS[hoveredParcel.demandScore] }}
+              style={{ color: HEAT_COLORS[hoveredParcel.demandScore] || HEAT_COLORS[3] }}
             >
               Demand {hoveredParcel.demandScore}/5
             </span>
