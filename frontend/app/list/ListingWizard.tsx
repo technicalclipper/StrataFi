@@ -558,6 +558,16 @@ export function ListingWizard() {
 }
 
 // ─── Interactive map for boundary drawing ───
+
+const BOUNDARY_COLORS = [
+  { label: 'Blue', value: '#2563eb' },
+  { label: 'Green', value: '#22c55e' },
+  { label: 'Red', value: '#ef4444' },
+  { label: 'Amber', value: '#f59e0b' },
+  { label: 'Purple', value: '#a855f7' },
+  { label: 'Cyan', value: '#06b6d4' },
+]
+
 function LocationStep({
   lat,
   lng,
@@ -577,28 +587,62 @@ function LocationStep({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
 
-  // Compute a boundary rectangle from center + area
+  const [rotation, setRotation] = useState(0) // degrees
+  const [scaleW, setScaleW] = useState(1.0) // width multiplier
+  const [scaleH, setScaleH] = useState(1.0) // height multiplier
+  const [color, setColor] = useState(BOUNDARY_COLORS[0].value)
+
+  // Refs for use inside map callbacks (avoids stale closures)
+  const rotRef = useRef(rotation)
+  const swRef = useRef(scaleW)
+  const shRef = useRef(scaleH)
+  const colorRef = useRef(color)
+  rotRef.current = rotation
+  swRef.current = scaleW
+  shRef.current = scaleH
+  colorRef.current = color
+
   const getBoundaryPolygon = useCallback(
-    (cLat: number, cLng: number): [number, number][] => {
-      // Approximate side length from area in sq ft -> degrees
+    (cLat: number, cLng: number, rot: number, sw: number, sh: number): [number, number][] => {
       const sideFt = Math.sqrt(areaSqFt)
-      const sideDegLat = sideFt / 364000 // ~1 deg lat ≈ 364,000 ft
-      const sideDegLng = sideFt / (364000 * Math.cos((cLat * Math.PI) / 180))
-      const half = { lat: sideDegLat / 2, lng: sideDegLng / 2 }
-      return [
-        [cLng - half.lng, cLat - half.lat],
-        [cLng + half.lng, cLat - half.lat],
-        [cLng + half.lng, cLat + half.lat],
-        [cLng - half.lng, cLat + half.lat],
-        [cLng - half.lng, cLat - half.lat],
+      const halfW = (sideFt * sw) / 2
+      const halfH = (sideFt * sh) / 2
+
+      // Corner offsets in feet (before rotation)
+      const corners = [
+        [-halfW, -halfH],
+        [halfW, -halfH],
+        [halfW, halfH],
+        [-halfW, halfH],
       ]
+
+      const rad = (rot * Math.PI) / 180
+      const cosR = Math.cos(rad)
+      const sinR = Math.sin(rad)
+
+      // Rotate, then convert feet → degrees
+      const ftPerDegLat = 364000
+      const ftPerDegLng = 364000 * Math.cos((cLat * Math.PI) / 180)
+
+      const pts: [number, number][] = corners.map(([x, y]) => {
+        const rx = x * cosR - y * sinR
+        const ry = x * sinR + y * cosR
+        return [cLng + rx / ftPerDegLng, cLat + ry / ftPerDegLat]
+      })
+      // Close the ring
+      pts.push(pts[0])
+      return pts
     },
     [areaSqFt],
   )
 
   const updateMapBoundary = useCallback(
-    (map: maplibregl.Map, cLat: number, cLng: number) => {
-      const polygon = getBoundaryPolygon(cLat, cLng)
+    (map: maplibregl.Map, cLat: number, cLng: number, rot?: number, sw?: number, sh?: number, col?: string) => {
+      const r = rot ?? rotRef.current
+      const w = sw ?? swRef.current
+      const h = sh ?? shRef.current
+      const c = col ?? colorRef.current
+      const polygon = getBoundaryPolygon(cLat, cLng, r, w, h)
       const geojson = {
         type: 'Feature' as const,
         properties: {},
@@ -609,14 +653,30 @@ function LocationStep({
       if (src) {
         src.setData(geojson as GeoJSON.Feature)
       }
+
+      // Update colors
+      if (map.getLayer('boundary-fill')) {
+        map.setPaintProperty('boundary-fill', 'fill-color', c)
+      }
+      if (map.getLayer('boundary-line')) {
+        map.setPaintProperty('boundary-line', 'line-color', c)
+      }
     },
     [getBoundaryPolygon],
   )
 
+  // Redraw when rotation/scale/color change
+  useEffect(() => {
+    const cLat = parseFloat(lat)
+    const cLng = parseFloat(lng)
+    if (mapRef.current && !isNaN(cLat) && !isNaN(cLng)) {
+      updateMapBoundary(mapRef.current, cLat, cLng, rotation, scaleW, scaleH, color)
+    }
+  }, [rotation, scaleW, scaleH, color, lat, lng, updateMapBoundary])
+
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
 
-    // Dynamic import to avoid SSR issues
     import('maplibre-gl').then((maplibregl) => {
       const initLat = parseFloat(lat) || 12.9698
       const initLng = parseFloat(lng) || 77.7506
@@ -639,13 +699,12 @@ function LocationStep({
           layers: [{ id: 'carto', type: 'raster', source: 'carto' }],
         },
         center: [initLng, initLat],
-        zoom: 15,
+        zoom: 16,
       })
 
       mapRef.current = map
 
       map.on('load', () => {
-        // Add boundary source + layers
         map.addSource('boundary', {
           type: 'geojson',
           data: {
@@ -658,26 +717,23 @@ function LocationStep({
           id: 'boundary-fill',
           type: 'fill',
           source: 'boundary',
-          paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.15 },
+          paint: { 'fill-color': colorRef.current, 'fill-opacity': 0.2 },
         })
         map.addLayer({
           id: 'boundary-line',
           type: 'line',
           source: 'boundary',
           paint: {
-            'line-color': '#2563eb',
-            'line-width': 2,
-            'line-dasharray': [2, 2],
+            'line-color': colorRef.current,
+            'line-width': 2.5,
           },
         })
 
-        // If we have initial coords, draw boundary
         if (lat && lng) {
           updateMapBoundary(map, initLat, initLng)
         }
       })
 
-      // Add draggable marker
       const marker = new maplibregl.default.Marker({
         color: '#2563eb',
         draggable: true,
@@ -687,21 +743,18 @@ function LocationStep({
 
       markerRef.current = marker
 
-      // Update on marker drag
       marker.on('dragend', () => {
         const pos = marker.getLngLat()
         onUpdate(pos.lat.toFixed(6), pos.lng.toFixed(6))
         updateMapBoundary(map, pos.lat, pos.lng)
       })
 
-      // Click to move marker
       map.on('click', (e: { lngLat: { lng: number; lat: number } }) => {
         marker.setLngLat([e.lngLat.lng, e.lngLat.lat])
         onUpdate(e.lngLat.lat.toFixed(6), e.lngLat.lng.toFixed(6))
         updateMapBoundary(map, e.lngLat.lat, e.lngLat.lng)
       })
 
-      // Set initial coords if empty
       if (!lat || !lng) {
         onUpdate(initLat.toFixed(6), initLng.toFixed(6))
       }
@@ -722,12 +775,81 @@ function LocationStep({
       {/* Interactive map */}
       <div
         ref={mapContainerRef}
-        className="h-72 rounded-[var(--radius-sm)] mb-3 border border-border-subtle overflow-hidden"
+        className="h-80 rounded-[var(--radius-sm)] mb-3 border border-border-subtle overflow-hidden"
       />
 
       <div className="text-[10px] text-text-tertiary mb-4">
-        Click on the map or drag the pin to set your parcel location. The
-        boundary rectangle is auto-calculated from the area you entered.
+        Click to place pin. Drag to reposition. Use controls below to resize, rotate, and color the boundary.
+      </div>
+
+      {/* Boundary controls */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        {/* Rotation */}
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
+            Rotation ({rotation}°)
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={360}
+            value={rotation}
+            onChange={(e) => setRotation(parseInt(e.target.value))}
+            className="w-full accent-brand h-1.5"
+          />
+        </div>
+
+        {/* Width scale */}
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
+            Width ({(scaleW * 100).toFixed(0)}%)
+          </label>
+          <input
+            type="range"
+            min={30}
+            max={300}
+            value={scaleW * 100}
+            onChange={(e) => setScaleW(parseInt(e.target.value) / 100)}
+            className="w-full accent-brand h-1.5"
+          />
+        </div>
+
+        {/* Height scale */}
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-1">
+            Height ({(scaleH * 100).toFixed(0)}%)
+          </label>
+          <input
+            type="range"
+            min={30}
+            max={300}
+            value={scaleH * 100}
+            onChange={(e) => setScaleH(parseInt(e.target.value) / 100)}
+            className="w-full accent-brand h-1.5"
+          />
+        </div>
+      </div>
+
+      {/* Color picker */}
+      <div className="mb-4">
+        <label className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary block mb-2">
+          Boundary Color
+        </label>
+        <div className="flex gap-2">
+          {BOUNDARY_COLORS.map((c) => (
+            <button
+              key={c.value}
+              onClick={() => setColor(c.value)}
+              className={`w-7 h-7 rounded-full border-2 transition-all ${
+                color === c.value
+                  ? 'border-white scale-110'
+                  : 'border-transparent hover:border-white/40'
+              }`}
+              style={{ backgroundColor: c.value }}
+              title={c.label}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Coordinate readout */}
@@ -745,7 +867,6 @@ function LocationStep({
               if (!isNaN(newLat) && !isNaN(newLng) && mapRef.current) {
                 markerRef.current?.setLngLat([newLng, newLat])
                 mapRef.current.flyTo({ center: [newLng, newLat] })
-                updateMapBoundary(mapRef.current, newLat, newLng)
               }
             }}
             type="number"
@@ -767,7 +888,6 @@ function LocationStep({
               if (!isNaN(newLat) && !isNaN(newLng) && mapRef.current) {
                 markerRef.current?.setLngLat([newLng, newLat])
                 mapRef.current.flyTo({ center: [newLng, newLat] })
-                updateMapBoundary(mapRef.current, newLat, newLng)
               }
             }}
             type="number"

@@ -82,17 +82,36 @@ export async function POST(request: NextRequest) {
       ? parseInt(registeredEvent.topics[1], 16)
       : 1
 
-    // 2. Mint shares to seller
+    // 2. Mint shares to deployer (who acts as the primary sale pool)
+    //    The deployer holds shares and sells them via Marketplace.buyPrimary
+    const deployerAddr = account.address
     const mintHash = await walletClient.writeContract({
       address: CONTRACTS.shareToken as `0x${string}`,
       abi: SHARE_TOKEN_ABI,
       functionName: 'mintShares',
-      args: [BigInt(parcelId), seller as `0x${string}`, BigInt(totalShares || 100)],
+      args: [BigInt(parcelId), deployerAddr, BigInt(totalShares || 100)],
     })
 
     await publicClient.waitForTransactionReceipt({ hash: mintHash })
 
-    // 3. Create primary sale on marketplace
+    // 3. Approve marketplace to transfer deployer's shares (idempotent)
+    const isApproved = await publicClient.readContract({
+      address: CONTRACTS.shareToken as `0x${string}`,
+      abi: SHARE_TOKEN_ABI,
+      functionName: 'isApprovedForAll',
+      args: [deployerAddr, CONTRACTS.marketplace as `0x${string}`],
+    })
+    if (!isApproved) {
+      const approveHash = await walletClient.writeContract({
+        address: CONTRACTS.shareToken as `0x${string}`,
+        abi: SHARE_TOKEN_ABI,
+        functionName: 'setApprovalForAll',
+        args: [CONTRACTS.marketplace as `0x${string}`, true],
+      })
+      await publicClient.waitForTransactionReceipt({ hash: approveHash })
+    }
+
+    // 4. Create primary sale on marketplace (deployer is msg.sender = seller)
     if (pricePerShare) {
       const priceBigInt = BigInt(Math.floor(parseFloat(pricePerShare) * 1e18))
       const primaryHash = await walletClient.writeContract({

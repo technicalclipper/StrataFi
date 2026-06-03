@@ -1,1 +1,94 @@
-[]
+[
+  {
+    "id": 2,
+    "name": "plot1",
+    "location": "12.9687, 77.7478",
+    "coordinates": [
+      77.747751,
+      12.968705
+    ],
+    "polygon": [
+      [
+        77.74761004191485,
+        12.968567637362638
+      ],
+      [
+        77.74789195808513,
+        12.968567637362638
+      ],
+      [
+        77.74789195808513,
+        12.968842362637362
+      ],
+      [
+        77.74761004191485,
+        12.968842362637362
+      ],
+      [
+        77.74761004191485,
+        12.968567637362638
+      ]
+    ],
+    "totalShares": 100,
+    "availableShares": 100,
+    "pricePerShare": 5,
+    "yieldPct": 0,
+    "demandScore": 3,
+    "confidenceScore": 64,
+    "verified": true,
+    "seller": "0x2e85f518752387211b6ae226691f402f160acd70",
+    "landType": "residential",
+    "areaSqFt": 10000,
+    "docHash": "0x78d1bc2c8ba1",
+    "geoHash": "0x3288836aab72",
+    "surveyNo": "asdfghjkl",
+    "txHash": "0x1415355406b0a230b8df591a68cb6f0c8064d3c711797749541e939c9effea9f",
+    "mintedAt": "2026-06-03T17:19:21.522Z"
+  },
+  {
+    "id": 3,
+    "name": "fabian",
+    "location": "12.9695, 77.7512",
+    "coordinates": [
+      77.751241,
+      12.969478
+    ],
+    "polygon": [
+      [
+        77.75110004147689,
+        12.969340637362638
+      ],
+      [
+        77.7513819585231,
+        12.969340637362638
+      ],
+      [
+        77.7513819585231,
+        12.969615362637363
+      ],
+      [
+        77.75110004147689,
+        12.969615362637363
+      ],
+      [
+        77.75110004147689,
+        12.969340637362638
+      ]
+    ],
+    "totalShares": 100,
+    "availableShares": 100,
+    "pricePerShare": 1,
+    "yieldPct": 0,
+    "demandScore": 3,
+    "confidenceScore": 64,
+    "verified": true,
+    "seller": "0xBf2B3686Eb83AAEc9556686D6000D8678809689f",
+    "landType": "residential",
+    "areaSqFt": 10000,
+    "docHash": "0x0977cd64d27f",
+    "geoHash": "0x20d903af8191",
+    "surveyNo": "asdfghjkl",
+    "txHash": "0xa6803daa6e6df1677cb11bbbc16dba3d0941d7b8ec35ccc120b8c513490fb3c6",
+    "mintedAt": "2026-06-03T17:29:47.652Z"
+  }
+]
