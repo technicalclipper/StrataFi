@@ -8,7 +8,7 @@ import {
   PlusCircle,
   Target,
   Activity,
-  FileText,
+  ShieldCheck,
 } from 'lucide-react'
 
 const navItems = [
@@ -16,8 +16,8 @@ const navItems = [
   { href: '/portfolio', icon: Briefcase, label: 'Portfolio' },
   { href: '/list', icon: PlusCircle, label: 'List Asset' },
   { href: '/acquire', icon: Target, label: 'Acquire' },
+  { href: '/kyc', icon: ShieldCheck, label: 'KYC' },
   { href: '/activity', icon: Activity, label: 'Activity' },
-  { href: '/docs', icon: FileText, label: 'Docs' },
 ]
 
 export function NavRail() {
