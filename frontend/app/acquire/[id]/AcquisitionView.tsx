@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { ArrowLeft, Bot, Loader2, Send, Vote, CheckCircle2, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
@@ -28,8 +28,8 @@ function truncAddr(addr: string) {
 }
 
 export function AcquisitionView({
-  parcel,
-  holders,
+  parcel: initialParcel,
+  holders: initialHolders,
 }: {
   parcel: ParcelData
   holders: Holder[]
@@ -37,9 +37,57 @@ export function AcquisitionView({
   const { address } = useAccount()
   const offerTx = useCreateOffer()
   const buyoutTx = useProposeBuyout()
-  const { data: myShares } = useShareBalance(parcel.id, address)
+  const { data: myShares } = useShareBalance(initialParcel.id, address)
   const myShareCount = Number(myShares || BigInt(0))
+
+  const [parcel, setParcel] = useState(initialParcel)
+  const [holders, setHolders] = useState(initialHolders)
+  const [holdersLoading, setHoldersLoading] = useState(true)
+
   const myPct = (myShareCount / parcel.totalShares) * 100
+
+  // Fetch live holders + parcel data from chain
+  const fetchLiveData = useCallback(async () => {
+    setHoldersLoading(true)
+    try {
+      const [holdersRes, parcelsRes] = await Promise.all([
+        fetch(`/api/holders?parcelId=${initialParcel.id}`),
+        fetch('/api/parcels'),
+      ])
+      const holdersData = await holdersRes.json()
+      const parcelsData = await parcelsRes.json()
+
+      // Update parcel with live availableShares
+      if (Array.isArray(parcelsData)) {
+        const live = parcelsData.find((p: ParcelData) => p.id === initialParcel.id)
+        if (live) setParcel(live)
+      }
+
+      // Build holder list with labels
+      if (Array.isArray(holdersData) && holdersData.length > 0) {
+        const totalShares = initialParcel.totalShares
+        const liveHolders: Holder[] = holdersData.map((h: { address: string; shares: number }) => {
+          const pct = (h.shares / totalShares) * 100
+          const isDeployer = h.address.toLowerCase() === initialParcel.seller?.toLowerCase()
+          return {
+            address: h.address,
+            shares: h.shares,
+            pct,
+            label: isDeployer ? 'Primary Pool (Deployer)' : `Investor`,
+          }
+        })
+        setHolders(liveHolders)
+      }
+    } catch {
+      // keep initial
+    } finally {
+      setHoldersLoading(false)
+    }
+  }, [initialParcel.id, initialParcel.totalShares, initialParcel.seller])
+
+  useEffect(() => {
+    fetchLiveData()
+  }, [fetchLiveData])
 
   const [budget, setBudget] = useState('')
   const [loading, setLoading] = useState(false)
@@ -153,10 +201,12 @@ export function AcquisitionView({
 
       {/* Cap table */}
       <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] overflow-hidden mb-6">
-        <div className="px-4 py-3 border-b border-border-subtle">
+        <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">
             Cap Table
           </span>
+          {holdersLoading && <Loader2 size={12} className="animate-spin text-text-tertiary" />}
+          <span className="text-[9px] text-text-tertiary ml-auto">Live on-chain data</span>
         </div>
         <table className="w-full">
           <thead>
