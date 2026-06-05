@@ -4,3 +4,8 @@ node_modules/
 .env
 .env.local
 *.pem
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/
+contracts/broadcast/
