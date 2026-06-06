@@ -63,17 +63,16 @@ export function AcquisitionView({
         if (live) setParcel(live)
       }
 
-      // Build holder list with labels
+      // Build holder list with labels — deployer is "Available (Unsold)", real buyers are investors
       if (Array.isArray(holdersData) && holdersData.length > 0) {
         const totalShares = initialParcel.totalShares
-        const liveHolders: Holder[] = holdersData.map((h: { address: string; shares: number }) => {
+        const liveHolders: Holder[] = holdersData.map((h: { address: string; shares: number; role?: string }) => {
           const pct = (h.shares / totalShares) * 100
-          const isDeployer = h.address.toLowerCase() === initialParcel.seller?.toLowerCase()
           return {
             address: h.address,
             shares: h.shares,
             pct,
-            label: isDeployer ? 'Primary Pool (Deployer)' : `Investor`,
+            label: h.role === 'deployer' ? 'Available (Unsold)' : 'Investor',
           }
         })
         setHolders(liveHolders)

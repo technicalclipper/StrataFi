@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
       confidenceScore: confidenceScore || 85,
       verified: true,
       seller: seller,
+      deployer: deployerAddr,
       landType: landType || 'residential',
       areaSqFt: areaNum,
       docHash: docBytes.slice(0, 14),

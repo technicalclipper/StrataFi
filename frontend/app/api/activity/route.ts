@@ -1,6 +1,7 @@
 /**
  * GET /api/activity
  * Reads real on-chain event logs from all StrataFi contracts on Mantle Sepolia.
+ * Paginates in 5000-block chunks (RPC limit) over the last 200k blocks.
  * Returns a unified activity feed sorted by block number (most recent first).
  */
 
@@ -13,6 +14,8 @@ import { join } from 'path'
 
 const RPC_URL = 'https://rpc.sepolia.mantle.xyz'
 const PARCELS_FILE = join(process.cwd(), 'data', 'parcels.json')
+const CHUNK_SIZE = BigInt(5000)
+const MAX_LOOKBACK = BigInt(200000)
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +35,32 @@ function truncAddr(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
 
+type EventDef = { address: string; event: ReturnType<typeof parseAbiItem> }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyLog = { args: any; transactionHash: string | null; blockNumber: bigint | null }
+
+// Helper to paginate getLogs across chunks (Mantle Sepolia limits ~5000 blocks per call)
+async function paginatedGetLogs(
+  publicClient: ReturnType<typeof createPublicClient>,
+  def: EventDef,
+  startBlock: bigint,
+  endBlock: bigint,
+): Promise<AnyLog[]> {
+  const allLogs: AnyLog[] = []
+  for (let from = startBlock; from < endBlock; from += CHUNK_SIZE) {
+    const to = from + CHUNK_SIZE > endBlock ? endBlock : from + CHUNK_SIZE
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const logs = await publicClient.getLogs({ address: def.address as `0x${string}`, event: def.event as any, fromBlock: from, toBlock: to })
+      allLogs.push(...(logs as unknown as AnyLog[]))
+    } catch {
+      // skip failed chunk
+    }
+  }
+  return allLogs
+}
+
 export async function GET() {
   try {
     const publicClient = createPublicClient({
@@ -41,10 +70,9 @@ export async function GET() {
 
     const parcels = getParcels()
     const currentBlock = await publicClient.getBlockNumber()
-    // Look back ~50000 blocks (~a day or so on Mantle Sepolia)
-    const fromBlock = currentBlock > BigInt(50000) ? currentBlock - BigInt(50000) : BigInt(0)
+    const startBlock = currentBlock > MAX_LOOKBACK ? currentBlock - MAX_LOOKBACK : BigInt(0)
 
-    // Fetch logs from all contracts in parallel
+    // Fetch all event types with pagination
     const [
       parcelRegisteredLogs,
       primaryPurchaseLogs,
@@ -55,46 +83,38 @@ export async function GET() {
       yieldDepositedLogs,
       yieldClaimedLogs,
     ] = await Promise.all([
-      publicClient.getLogs({
-        address: CONTRACTS.parcelRegistry as `0x${string}`,
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.parcelRegistry,
         event: parseAbiItem('event ParcelRegistered(uint256 indexed id, address indexed seller, bytes32 geoHash, bytes32 docHash, uint16 confidenceScore, uint256 totalShares)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.marketplace as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.marketplace,
         event: parseAbiItem('event PrimaryPurchase(uint256 indexed parcelId, address indexed buyer, uint256 amount, uint256 totalPaid)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.marketplace as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.marketplace,
         event: parseAbiItem('event ListingCreated(uint256 indexed listingId, uint256 indexed parcelId, address indexed seller, uint256 amount, uint256 pricePerShare)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.marketplace as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.marketplace,
         event: parseAbiItem('event ListingFilled(uint256 indexed listingId, address indexed buyer, uint256 amount, uint256 totalPaid)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.marketplace as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.marketplace,
         event: parseAbiItem('event OfferCreated(uint256 indexed offerId, uint256 indexed parcelId, address indexed buyer, address targetHolder, uint256 amount, uint256 pricePerShare)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.marketplace as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.marketplace,
         event: parseAbiItem('event OfferAccepted(uint256 indexed offerId)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.yieldSplitter as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.yieldSplitter,
         event: parseAbiItem('event YieldDeposited(uint256 indexed parcelId, address indexed depositor, uint256 amount)'),
-        fromBlock,
-      }).catch(() => []),
-      publicClient.getLogs({
-        address: CONTRACTS.yieldSplitter as `0x${string}`,
+      }, startBlock, currentBlock),
+      paginatedGetLogs(publicClient, {
+        address: CONTRACTS.yieldSplitter,
         event: parseAbiItem('event YieldClaimed(uint256 indexed parcelId, address indexed holder, uint256 amount)'),
-        fromBlock,
-      }).catch(() => []),
+      }, startBlock, currentBlock),
     ])
 
     type Activity = {

@@ -1,6 +1,7 @@
 /**
  * GET /api/parcels
- * Returns all minted parcels, enriched with live on-chain share balances
+ * Returns all minted parcels, enriched with live on-chain share balances.
+ * Reads the seller address from parcels.json (not env) to check available shares.
  */
 
 import { NextResponse } from 'next/server'
@@ -9,7 +10,6 @@ import { join } from 'path'
 import { createPublicClient, http } from 'viem'
 import { mantleSepoliaTestnet } from 'viem/chains'
 import { CONTRACTS, SHARE_TOKEN_ABI } from '@/lib/contracts'
-import { privateKeyToAccount } from 'viem/accounts'
 
 const PARCELS_FILE = join(process.cwd(), 'data', 'parcels.json')
 const RPC_URL = 'https://rpc.sepolia.mantle.xyz'
@@ -21,27 +21,26 @@ export async function GET() {
     const raw = readFileSync(PARCELS_FILE, 'utf-8')
     const parcels = JSON.parse(raw)
 
-    // Read deployer address (the primary sale pool holder)
-    const pk = process.env.DEPLOYER_PRIVATE_KEY
-    if (!pk || parcels.length === 0) {
+    if (parcels.length === 0) {
       return NextResponse.json(parcels)
     }
 
-    const deployerAddr = privateKeyToAccount(pk as `0x${string}`).address
     const publicClient = createPublicClient({
       chain: mantleSepoliaTestnet,
       transport: http(RPC_URL),
     })
 
-    // Fetch deployer's balance for each parcel (= available shares)
+    // Fetch deployer's balance for each parcel (deployer = backend signer who holds minted shares)
     const enriched = await Promise.all(
-      parcels.map(async (p: { id: number; totalShares: number; [k: string]: unknown }) => {
+      parcels.map(async (p: { id: number; totalShares: number; deployer?: string; seller?: string; [k: string]: unknown }) => {
+        const poolHolder = p.deployer || p.seller
+        if (!poolHolder) return p
         try {
           const balance = await publicClient.readContract({
             address: CONTRACTS.shareToken as `0x${string}`,
             abi: SHARE_TOKEN_ABI,
             functionName: 'balanceOf',
-            args: [deployerAddr, BigInt(p.id)],
+            args: [poolHolder as `0x${string}`, BigInt(p.id)],
           })
           return { ...p, availableShares: Number(balance) }
         } catch {
