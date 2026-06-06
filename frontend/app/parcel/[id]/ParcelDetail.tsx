@@ -9,6 +9,8 @@ import { ConfidenceMeter } from '@/components/ConfidenceMeter'
 import { ShareDistribution } from '@/components/ShareDistribution'
 import { OrderTicket } from '@/components/OrderTicket'
 import { Delta } from '@/components/Delta'
+import { BuyoutProposals } from '@/components/BuyoutProposals'
+import { PriceChart } from '@/components/PriceChart'
 
 type Holder = {
   address: string
@@ -44,11 +46,13 @@ export function ParcelDetail({
       if (Array.isArray(holdersData) && holdersData.length > 0) {
         const totalShares = initialParcel.totalShares
         setHolders(
-          holdersData.map((h: { address: string; shares: number }) => ({
-            address: h.address,
-            shares: h.shares,
-            percentage: (h.shares / totalShares) * 100,
-          })),
+          holdersData
+            .filter((h: { role?: string }) => h.role !== 'deployer')
+            .map((h: { address: string; shares: number }) => ({
+              address: h.address,
+              shares: h.shares,
+              percentage: (h.shares / totalShares) * 100,
+            })),
         )
       }
     } catch {
@@ -139,16 +143,12 @@ export function ParcelDetail({
           ))}
         </div>
 
-        {/* Price chart placeholder */}
+        {/* Price chart */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-6">
           <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-3">
             Price History
           </div>
-          <div className="h-48 bg-bg-sunken rounded-[var(--radius-sm)] flex items-center justify-center">
-            <span className="text-[12.5px] text-text-tertiary">
-              Chart loads after contract deployment
-            </span>
-          </div>
+          <PriceChart parcelId={parcel.id} currentPrice={parcel.pricePerShare} />
         </div>
 
         {/* AI Valuation */}
@@ -195,6 +195,11 @@ export function ParcelDetail({
 
         {/* Cap table */}
         <ShareDistribution holders={holders} totalShares={parcel.totalShares} />
+
+        {/* Buyout Proposals / Governance */}
+        <div className="mt-6">
+          <BuyoutProposals parcelId={parcel.id} />
+        </div>
 
         {/* Parcel info */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mt-6">
