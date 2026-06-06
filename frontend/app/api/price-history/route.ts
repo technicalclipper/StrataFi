@@ -56,8 +56,8 @@ export async function GET(request: NextRequest) {
     const currentBlock = await publicClient.getBlockNumber()
     const startBlock = currentBlock > MAX_LOOKBACK ? currentBlock - MAX_LOOKBACK : BigInt(0)
 
-    // Fetch primary purchases and secondary fills
-    const [primaryLogs, fillLogs] = await Promise.all([
+    // Fetch primary purchases, secondary fills, and offers
+    const [primaryLogs, fillLogs, offerLogs, acceptLogs] = await Promise.all([
       paginatedGetLogs(
         publicClient,
         CONTRACTS.marketplace,
@@ -69,6 +69,20 @@ export async function GET(request: NextRequest) {
         publicClient,
         CONTRACTS.marketplace,
         parseAbiItem('event ListingFilled(uint256 indexed listingId, address indexed buyer, uint256 amount, uint256 totalPaid)'),
+        startBlock,
+        currentBlock,
+      ),
+      paginatedGetLogs(
+        publicClient,
+        CONTRACTS.marketplace,
+        parseAbiItem('event OfferCreated(uint256 indexed offerId, uint256 indexed parcelId, address indexed buyer, address targetHolder, uint256 amount, uint256 pricePerShare)'),
+        startBlock,
+        currentBlock,
+      ),
+      paginatedGetLogs(
+        publicClient,
+        CONTRACTS.marketplace,
+        parseAbiItem('event OfferAccepted(uint256 indexed offerId)'),
         startBlock,
         currentBlock,
       ),
@@ -100,6 +114,23 @@ export async function GET(request: NextRequest) {
         price: pricePerShare,
         amount,
         type: 'secondary',
+      })
+    }
+
+    // Collect accepted offer IDs for marking
+    const acceptedOfferIds = new Set(acceptLogs.map(log => log.args.offerId?.toString()))
+
+    for (const log of offerLogs) {
+      if (log.args.parcelId !== pid) continue
+      const amount = Number(log.args.amount || BigInt(1))
+      const pricePerShare = parseFloat(formatEther(log.args.pricePerShare as bigint))
+      const offerId = log.args.offerId?.toString()
+      const accepted = acceptedOfferIds.has(offerId)
+      points.push({
+        block: Number(log.blockNumber || BigInt(0)),
+        price: pricePerShare,
+        amount,
+        type: accepted ? 'offer-accepted' : 'offer',
       })
     }
 

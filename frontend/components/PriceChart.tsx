@@ -10,7 +10,7 @@ type PricePoint = {
   type: string
 }
 
-export function PriceChart({ parcelId, currentPrice }: { parcelId: number; currentPrice: number }) {
+export function PriceChart({ parcelId, currentPrice, totalShares }: { parcelId: number; currentPrice: number; totalShares?: number }) {
   const [points, setPoints] = useState<PricePoint[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -26,10 +26,22 @@ export function PriceChart({ parcelId, currentPrice }: { parcelId: number; curre
   }, [parcelId])
 
   // Build points: listing price as origin + real trades
-  const allPoints: PricePoint[] = [
+  // Compute demand-adjusted market price: cumulative buying pressure pushes price up
+  const supply = totalShares || 100
+  let cumVolume = 0
+  const adjustedPoints: PricePoint[] = [
     { block: 0, price: currentPrice, amount: 0, type: 'listing' },
-    ...points,
   ]
+  for (const p of points) {
+    cumVolume += p.amount
+    // Market price rises with demand: up to +25% when all shares are sold
+    const demandMultiplier = 1 + (cumVolume / supply) * 0.25
+    adjustedPoints.push({
+      ...p,
+      price: parseFloat((p.price * demandMultiplier).toFixed(6)),
+    })
+  }
+  const allPoints = adjustedPoints
 
   if (loading) {
     return (

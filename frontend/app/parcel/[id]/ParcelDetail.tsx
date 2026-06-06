@@ -148,7 +148,7 @@ export function ParcelDetail({
           <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-3">
             Price History
           </div>
-          <PriceChart parcelId={parcel.id} currentPrice={parcel.pricePerShare} />
+          <PriceChart parcelId={parcel.id} currentPrice={parcel.pricePerShare} totalShares={parcel.totalShares} />
         </div>
 
         {/* AI Valuation */}
