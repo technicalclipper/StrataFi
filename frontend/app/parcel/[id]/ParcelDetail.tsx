@@ -2,15 +2,22 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, MapPin } from 'lucide-react'
+import { ArrowLeft, ExternalLink, MapPin, Bot } from 'lucide-react'
 import type { ParcelData } from '@/lib/seed-parcels'
 import { Badge } from '@/components/Badge'
 import { ConfidenceMeter } from '@/components/ConfidenceMeter'
 import { ShareDistribution } from '@/components/ShareDistribution'
 import { OrderTicket } from '@/components/OrderTicket'
-import { Delta } from '@/components/Delta'
 import { BuyoutProposals } from '@/components/BuyoutProposals'
 import { PriceChart } from '@/components/PriceChart'
+import {
+  Sparkline,
+  DeltaChip,
+  simulateSeries,
+  makeTicker,
+  LiveBadge,
+  LAND_TYPE_COLORS,
+} from '@/components/MarketUI'
 
 type Holder = {
   address: string
@@ -65,8 +72,13 @@ export function ParcelDetail({
     refetchParcel()
   }, [refetchParcel])
 
-  // Mock price history for sparkline area
-  const mockPriceChange = ((parcel.demandScore - 3) / 3) * 12.5
+  // Deterministic market simulation (same as /markets page)
+  const sim = simulateSeries(parcel.id, parcel.pricePerShare)
+  const ticker = makeTicker(parcel.name, parcel.id)
+  const soldPct =
+    parcel.totalShares > 0
+      ? ((parcel.totalShares - parcel.availableShares) / parcel.totalShares) * 100
+      : 0
 
   return (
     <div className="flex h-full">
@@ -74,73 +86,97 @@ export function ParcelDetail({
       <div className="flex-1 overflow-auto p-6">
         {/* Back */}
         <Link
-          href="/"
+          href="/markets"
           className="inline-flex items-center gap-1.5 text-[12.5px] text-text-secondary hover:text-text-primary transition-colors mb-4"
         >
           <ArrowLeft size={14} />
-          Back to Map
+          Back to Markets
         </Link>
 
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-[26px] font-semibold tracking-tight">
-              {parcel.name}
-            </h1>
-            {parcel.verified && <Badge variant="verified" />}
-            <Badge variant="on-chain" />
-          </div>
-          <div className="flex items-center gap-4 text-[12.5px] text-text-secondary">
-            <span className="flex items-center gap-1">
-              <MapPin size={13} />
-              {parcel.location}
-            </span>
-            <span className="tnum font-mono text-[11px] text-text-tertiary">
-              {parcel.coordinates[1].toFixed(6)}, {parcel.coordinates[0].toFixed(6)}
-            </span>
-            <Badge variant="demand" demandLevel={parcel.demandScore} />
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          {[
-            {
-              label: 'Price / Share',
-              value: `${parcel.pricePerShare} MNT`,
-              delta: mockPriceChange,
-            },
-            {
-              label: 'Yield',
-              value: `${parcel.yieldPct}%`,
-              delta: parcel.yieldPct > 7 ? 2.1 : -0.8,
-            },
-            {
-              label: 'Shares Available',
-              value: `${parcel.availableShares} / ${parcel.totalShares}`,
-              delta: null,
-            },
-            {
-              label: 'Market Cap',
-              value: `${(parcel.totalShares * parcel.pricePerShare).toFixed(1)} MNT`,
-              delta: mockPriceChange,
-            },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4"
-            >
-              <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
-                {stat.label}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="tnum text-[16px] font-semibold text-text-primary">
-                  {stat.value}
+        {/* ───── Stock-style header ───── */}
+        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-5 mb-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <span className="font-mono text-[18px] font-semibold text-text-primary tracking-tight">
+                  {ticker}
                 </span>
-                {stat.delta !== null && <Delta value={stat.delta} showBg />}
+                <span
+                  className={`text-[9px] font-medium uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[var(--radius-xs)] ${
+                    LAND_TYPE_COLORS[parcel.landType] || 'text-text-tertiary bg-surface-3'
+                  }`}
+                >
+                  {parcel.landType}
+                </span>
+                {parcel.verified && <Badge variant="verified" />}
+                <Badge variant="on-chain" />
+                <LiveBadge />
+              </div>
+              <div className="flex items-center gap-3 text-[12.5px] text-text-secondary mb-4">
+                <span className="text-text-primary font-medium">{parcel.name}</span>
+                <span className="flex items-center gap-1">
+                  <MapPin size={12} />
+                  {parcel.location}
+                </span>
+                <span className="tnum font-mono text-[10.5px] text-text-tertiary">
+                  {parcel.coordinates[1].toFixed(6)}, {parcel.coordinates[0].toFixed(6)}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-3">
+                <span className="tnum text-[34px] font-semibold text-text-primary leading-none">
+                  {sim.livePrice.toFixed(3)}
+                </span>
+                <span className="text-[14px] text-text-tertiary">MNT / share</span>
+                <DeltaChip value={sim.changePct} size="md" />
               </div>
             </div>
-          ))}
+            <Sparkline data={sim.series} up={sim.changePct >= 0} w={180} h={52} />
+          </div>
+
+          {/* Inline stat strip */}
+          <div className="grid grid-cols-4 gap-4 mt-5 pt-4 border-t border-border-subtle">
+            <div>
+              <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+                Market Cap
+              </div>
+              <div className="tnum text-[14px] font-semibold text-text-primary">
+                {(parcel.totalShares * sim.livePrice).toLocaleString(undefined, {
+                  maximumFractionDigits: 1,
+                })}{' '}
+                <span className="text-[10px] font-normal text-text-tertiary">MNT</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+                Yield
+              </div>
+              <div className={`tnum text-[14px] font-semibold ${parcel.yieldPct > 0 ? 'text-up' : 'text-text-tertiary'}`}>
+                {parcel.yieldPct > 0 ? `${parcel.yieldPct}%` : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+                Shares Sold
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="tnum text-[14px] font-semibold text-text-primary">
+                  {soldPct.toFixed(0)}%
+                </span>
+                <div className="flex-1 max-w-20 h-[3px] rounded-full bg-surface-3 overflow-hidden">
+                  <div className="h-full rounded-full bg-brand" style={{ width: `${soldPct}%` }} />
+                </div>
+              </div>
+              <div className="tnum text-[9.5px] text-text-tertiary mt-0.5">
+                {parcel.availableShares}/{parcel.totalShares} available
+              </div>
+            </div>
+            <div>
+              <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+                Demand
+              </div>
+              <Badge variant="demand" demandLevel={parcel.demandScore} />
+            </div>
+          </div>
         </div>
 
         {/* Price chart */}
@@ -153,8 +189,8 @@ export function ParcelDetail({
 
         {/* AI Valuation */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-6">
-          <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-3">
-            AI Valuation
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-3">
+            <Bot size={11} className="text-brand" /> AI Valuation
           </div>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div>
