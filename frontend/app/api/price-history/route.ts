@@ -10,8 +10,10 @@ import { mantleSepoliaTestnet } from 'viem/chains'
 import { CONTRACTS } from '@/lib/contracts'
 
 const RPC_URL = 'https://rpc.sepolia.mantle.xyz'
-const CHUNK_SIZE = BigInt(5000)
-const MAX_LOOKBACK = BigInt(200000)
+const CHUNK_SIZE = BigInt(10000) // Mantle Sepolia RPC max getLogs range
+// Marketplace was deployed shortly before block ~39,480,000 (first trades).
+// Scan from a fixed floor so old trades never age out of a sliding window.
+const DEPLOY_BLOCK = BigInt(39400000)
 
 export const dynamic = 'force-dynamic'
 
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
     })
 
     const currentBlock = await publicClient.getBlockNumber()
-    const startBlock = currentBlock > MAX_LOOKBACK ? currentBlock - MAX_LOOKBACK : BigInt(0)
+    const startBlock = currentBlock > DEPLOY_BLOCK ? DEPLOY_BLOCK : BigInt(0)
 
     // Fetch primary purchases, secondary fills, and offers
     const [primaryLogs, fillLogs, offerLogs, acceptLogs] = await Promise.all([
