@@ -153,3 +153,32 @@ body {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
+
+/* Ticker tape marquee */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-tape {
+  animation: ticker-scroll 40s linear infinite;
+}
+.ticker-tape:hover {
+  animation-play-state: paused;
+}
+
+/* Tick flash — price update pulse */
+@keyframes tick-flash-up {
+  0% { background-color: var(--up-bg); }
+  100% { background-color: transparent; }
+}
+@keyframes tick-flash-down {
+  0% { background-color: var(--down-bg); }
+  100% { background-color: transparent; }
+}
+.tick-up { animation: tick-flash-up 600ms ease-out; }
+.tick-down { animation: tick-flash-down 600ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-tape { animation: none; }
+  .tick-up, .tick-down { animation: none; }
+}
