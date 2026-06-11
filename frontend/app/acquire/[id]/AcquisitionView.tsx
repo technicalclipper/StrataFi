@@ -166,34 +166,75 @@ export function AcquisitionView({
         All Parcels
       </Link>
 
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-[26px] font-semibold tracking-tight">
-          Acquire: {parcel.name}
-        </h1>
-        {parcel.verified && <Badge variant="verified" />}
-      </div>
+      <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-5 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <h1 className="text-[22px] font-semibold tracking-[-0.01em]">
+            Acquire: {parcel.name}
+          </h1>
+          {parcel.verified && <Badge variant="verified" />}
+          <Badge variant="on-chain" />
+        </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4">
-          <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
-            Total Shares
+        <div className="grid grid-cols-3 gap-4 mb-5">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+              Total Shares
+            </div>
+            <div className="tnum text-[20px] font-semibold">{parcel.totalShares}</div>
           </div>
-          <div className="tnum text-[20px] font-semibold">{parcel.totalShares}</div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+              Current Price
+            </div>
+            <div className="tnum text-[20px] font-semibold">
+              {parcel.pricePerShare}{' '}
+              <span className="text-[12px] font-normal text-text-tertiary">MNT</span>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
+              Full Market Cap
+            </div>
+            <div className="tnum text-[20px] font-semibold">
+              {(parcel.totalShares * parcel.pricePerShare).toFixed(1)}{' '}
+              <span className="text-[12px] font-normal text-text-tertiary">MNT</span>
+            </div>
+          </div>
         </div>
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4">
-          <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
-            Current Price
+
+        {/* Progress toward majority */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">
+              Your Progress to Majority
+            </span>
+            <span className="tnum text-[11px] font-medium text-text-secondary">
+              {myShareCount} shares · {myPct.toFixed(1)}%
+            </span>
           </div>
-          <div className="tnum text-[20px] font-semibold">
-            {parcel.pricePerShare} MNT
+          <div className="relative h-2.5 bg-surface-3 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-[var(--dur-slow)]"
+              style={{
+                width: `${Math.min(myPct, 100)}%`,
+                backgroundColor: myPct >= 51 ? 'var(--up)' : 'var(--brand)',
+              }}
+            />
+            {/* 51% threshold marker */}
+            <div
+              className="absolute top-0 bottom-0 w-px bg-text-primary/60"
+              style={{ left: '51%' }}
+            />
           </div>
-        </div>
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4">
-          <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
-            Full Market Cap
-          </div>
-          <div className="tnum text-[20px] font-semibold">
-            {(parcel.totalShares * parcel.pricePerShare).toFixed(1)} MNT
+          <div className="flex justify-between mt-1">
+            <span className="tnum text-[9px] text-text-tertiary">0%</span>
+            <span
+              className="tnum text-[9px] font-medium"
+              style={{ marginLeft: '2%', color: myPct >= 51 ? 'var(--up)' : 'var(--text-tertiary)' }}
+            >
+              51% — squeeze-out unlocked
+            </span>
+            <span className="tnum text-[9px] text-text-tertiary">100%</span>
           </div>
         </div>
       </div>
@@ -217,23 +258,50 @@ export function AcquisitionView({
             </tr>
           </thead>
           <tbody>
-            {holders.map((h) => (
-              <tr
-                key={h.address}
-                className="border-b border-border-subtle last:border-0 hover:bg-surface-3 transition-colors"
-              >
-                <td className="px-4 py-2.5 font-mono text-[11px] text-text-secondary">
-                  {truncAddr(h.address)}
-                </td>
-                <td className="px-4 py-2.5 text-[12.5px] text-text-primary">
-                  {h.label}
-                </td>
-                <td className="px-4 py-2.5 text-right tnum text-[12.5px]">{h.shares}</td>
-                <td className="px-4 py-2.5 text-right tnum text-[12.5px] text-text-secondary">
-                  {h.pct.toFixed(1)}%
-                </td>
-              </tr>
-            ))}
+            {holders.map((h) => {
+              const isMe = address && h.address.toLowerCase() === address.toLowerCase()
+              return (
+                <tr
+                  key={h.address}
+                  className="border-b border-border-subtle last:border-0 hover:bg-surface-3 transition-colors"
+                >
+                  <td className="px-4 py-2.5">
+                    <a
+                      href={`https://sepolia.mantlescan.xyz/address/${h.address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-[11px] text-text-secondary hover:text-brand transition-colors"
+                    >
+                      {truncAddr(h.address)}
+                    </a>
+                    {isMe && (
+                      <span className="ml-2 text-[9px] font-medium text-brand bg-brand-bg px-1.5 py-0.5 rounded-[var(--radius-xs)]">
+                        YOU
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-[12.5px] text-text-primary">{h.label}</td>
+                  <td className="px-4 py-2.5 text-right tnum text-[12.5px]">{h.shares}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-20 h-[3px] rounded-full bg-surface-3 overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${h.pct}%`,
+                            backgroundColor:
+                              h.label === 'Available (Unsold)' ? 'var(--text-tertiary)' : 'var(--brand)',
+                          }}
+                        />
+                      </div>
+                      <span className="tnum text-[12.5px] text-text-secondary w-12 text-right">
+                        {h.pct.toFixed(1)}%
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

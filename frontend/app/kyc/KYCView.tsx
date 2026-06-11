@@ -88,20 +88,51 @@ export function KYCView() {
     )
   }
 
+  const steps = [
+    { label: 'Government ID', done: !!idFile },
+    { label: 'Selfie', done: !!selfieFile },
+    { label: 'AI Verification', done: status === 'passed' },
+  ]
+
   return (
     <div className="max-w-2xl mx-auto p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <ShieldCheck size={24} className="text-brand" />
-        <h1 className="text-[26px] font-semibold tracking-tight">
-          Identity Verification
-        </h1>
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-10 h-10 rounded-[var(--radius-sm)] bg-brand-bg flex items-center justify-center">
+          <ShieldCheck size={20} className="text-brand" />
+        </div>
+        <div>
+          <h1 className="text-[22px] font-semibold tracking-[-0.01em] leading-tight">
+            Identity Verification
+          </h1>
+          <p className="text-[11px] text-text-tertiary">
+            One-time AI KYC · only a hash is stored · never repeated
+          </p>
+        </div>
       </div>
 
-      <p className="text-[12.5px] text-text-secondary mb-6 leading-relaxed">
-        One-time KYC is required before buying or selling shares. Upload your
-        government ID and a selfie. AI verifies the match — only a hash of the
-        result is stored. You will not need to repeat this.
-      </p>
+      {/* Step progress */}
+      <div className="flex items-center gap-2 my-6">
+        {steps.map((s, i) => (
+          <div key={s.label} className="flex items-center gap-2 flex-1">
+            <div
+              className={`flex items-center gap-2 flex-1 px-3 py-2 rounded-[var(--radius-sm)] border text-[11px] font-medium transition-colors ${
+                s.done
+                  ? 'border-up-border bg-up-bg text-up'
+                  : 'border-border-default bg-surface-1 text-text-tertiary'
+              }`}
+            >
+              <span
+                className={`tnum w-4.5 h-4.5 w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] shrink-0 ${
+                  s.done ? 'bg-up text-text-inverse' : 'bg-surface-3 text-text-tertiary'
+                }`}
+              >
+                {s.done ? '✓' : i + 1}
+              </span>
+              {s.label}
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Status banner */}
       {status === 'passed' && (
@@ -119,6 +150,7 @@ export function KYCView() {
 
       {status !== 'passed' && (
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
           {/* ID Upload */}
           <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-5">
             <div className="flex items-center gap-2 mb-3">
@@ -202,11 +234,12 @@ export function KYCView() {
               className="hidden"
             />
           </div>
+          </div>
 
           {/* Verify button */}
           <button
             onClick={handleVerify}
-            disabled={status === 'verifying'}
+            disabled={status === 'verifying' || !idFile || !selfieFile}
             className="w-full py-3 bg-brand text-white rounded-[var(--radius-sm)] text-[14px] font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-2"
           >
             {status === 'verifying' ? (

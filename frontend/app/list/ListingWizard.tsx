@@ -167,9 +167,19 @@ export function ListingWizard() {
 
   return (
     <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-[26px] font-semibold tracking-tight mb-6">
-        List Your Land
-      </h1>
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-[var(--radius-sm)] bg-brand-bg flex items-center justify-center">
+          <Rocket size={20} className="text-brand" />
+        </div>
+        <div>
+          <h1 className="text-[22px] font-semibold tracking-[-0.01em] leading-tight">
+            List Your Land
+          </h1>
+          <p className="text-[11px] text-text-tertiary">
+            Tokenize a parcel into tradable shares — AI verifies, Mantle settles
+          </p>
+        </div>
+      </div>
 
       {/* Step indicator */}
       <div className="flex items-center mb-8">
