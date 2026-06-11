@@ -2,22 +2,27 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, MapPin, Bot } from 'lucide-react'
+import {
+  ArrowLeft,
+  ExternalLink,
+  Bot,
+  ShieldCheck,
+  Hexagon,
+  Users,
+  Diamond,
+} from 'lucide-react'
 import type { ParcelData } from '@/lib/seed-parcels'
 import { Badge } from '@/components/Badge'
-import { ConfidenceMeter } from '@/components/ConfidenceMeter'
 import { ShareDistribution } from '@/components/ShareDistribution'
 import { OrderTicket } from '@/components/OrderTicket'
 import { BuyoutProposals } from '@/components/BuyoutProposals'
 import { PriceChart } from '@/components/PriceChart'
-import {
-  Sparkline,
-  DeltaChip,
-  simulateSeries,
-  makeTicker,
-  LiveBadge,
-  LAND_TYPE_COLORS,
-} from '@/components/MarketUI'
+import { ParcelHero } from '@/components/ParcelHero'
+import { VerificationTheater } from '@/components/VerificationTheater'
+import { ParcelActivityFeed } from '@/components/ParcelActivityFeed'
+import { AIAnalyst } from '@/components/AIAnalyst'
+import { simulateSeries, makeTicker, LAND_TYPE_COLORS } from '@/components/MarketUI'
+import { CONTRACTS } from '@/lib/contracts'
 
 type Holder = {
   address: string
@@ -34,6 +39,7 @@ export function ParcelDetail({
 }) {
   const [parcel, setParcel] = useState(initialParcel)
   const [holders, setHolders] = useState(initialHolders)
+  const [offerRequest, setOfferRequest] = useState<{ target: string; nonce: number } | null>(null)
 
   // Fetch live on-chain data (availableShares + real holder addresses)
   const refetchParcel = useCallback(async () => {
@@ -80,10 +86,13 @@ export function ParcelDetail({
       ? ((parcel.totalShares - parcel.availableShares) / parcel.totalShares) * 100
       : 0
 
+  const scrollTo = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
   return (
     <div className="flex h-full">
       {/* Left — main content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 min-w-0">
         {/* Back */}
         <Link
           href="/markets"
@@ -93,48 +102,59 @@ export function ParcelDetail({
           Back to Markets
         </Link>
 
-        {/* ───── Stock-style header ───── */}
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-5 mb-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2.5 mb-1.5">
-                <span className="font-mono text-[18px] font-semibold text-text-primary tracking-tight">
-                  {ticker}
-                </span>
-                <span
-                  className={`text-[9px] font-medium uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[var(--radius-xs)] ${
-                    LAND_TYPE_COLORS[parcel.landType] || 'text-text-tertiary bg-surface-3'
-                  }`}
-                >
-                  {parcel.landType}
-                </span>
-                {parcel.verified && <Badge variant="verified" />}
-                <Badge variant="on-chain" />
-                <LiveBadge />
-              </div>
-              <div className="flex items-center gap-3 text-[12.5px] text-text-secondary mb-4">
-                <span className="text-text-primary font-medium">{parcel.name}</span>
-                <span className="flex items-center gap-1">
-                  <MapPin size={12} />
-                  {parcel.location}
-                </span>
-                <span className="tnum font-mono text-[10.5px] text-text-tertiary">
-                  {parcel.coordinates[1].toFixed(6)}, {parcel.coordinates[0].toFixed(6)}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-3">
-                <span className="tnum text-[34px] font-semibold text-text-primary leading-none">
-                  {sim.livePrice.toFixed(3)}
-                </span>
-                <span className="text-[14px] text-text-tertiary">MNT / share</span>
-                <DeltaChip value={sim.changePct} size="md" />
-              </div>
-            </div>
-            <Sparkline data={sim.series} up={sim.changePct >= 0} w={180} h={52} />
-          </div>
+        {/* ───── Cinematic satellite hero ───── */}
+        <ParcelHero
+          parcel={parcel}
+          ticker={ticker}
+          livePrice={sim.livePrice}
+          changePct={sim.changePct}
+        />
 
-          {/* Inline stat strip */}
-          <div className="grid grid-cols-4 gap-4 mt-5 pt-4 border-t border-border-subtle">
+        {/* ───── Trust strip ───── */}
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          <button
+            onClick={() => scrollTo('verification-theater')}
+            className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-up bg-up-bg border border-up-border rounded-full px-3 py-1 hover:brightness-110 transition-all"
+          >
+            <ShieldCheck size={11} />
+            AI Verified {parcel.confidenceScore}/100
+          </button>
+          <a
+            href={`https://sepolia.mantlescan.xyz/address/${CONTRACTS.shareToken}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-brand bg-brand-bg border border-brand-border rounded-full px-3 py-1 hover:brightness-110 transition-all"
+          >
+            <Diamond size={10} />
+            Minted on Mantle
+            <ExternalLink size={9} />
+          </a>
+          <span
+            title={`Geo hash ${parcel.geoHash}`}
+            className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-text-secondary bg-surface-2 border border-border-default rounded-full px-3 py-1"
+          >
+            <Hexagon size={10} className="text-brand" />
+            Geo-validated
+          </span>
+          <button
+            onClick={() => scrollTo('cap-table')}
+            className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-text-secondary bg-surface-2 border border-border-default rounded-full px-3 py-1 hover:border-border-strong transition-colors"
+          >
+            <Users size={10} />
+            {holders.length} holder{holders.length === 1 ? '' : 's'}
+          </button>
+          <span
+            className={`inline-flex items-center text-[10.5px] font-medium uppercase tracking-[0.04em] rounded-full px-3 py-1 ${
+              LAND_TYPE_COLORS[parcel.landType] || 'text-text-tertiary bg-surface-3'
+            }`}
+          >
+            {parcel.landType}
+          </span>
+        </div>
+
+        {/* Stat strip */}
+        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-5">
+          <div className="grid grid-cols-4 gap-4">
             <div>
               <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
                 Market Cap
@@ -150,7 +170,9 @@ export function ParcelDetail({
               <div className="text-[9.5px] uppercase tracking-[0.06em] text-text-tertiary mb-1">
                 Yield
               </div>
-              <div className={`tnum text-[14px] font-semibold ${parcel.yieldPct > 0 ? 'text-up' : 'text-text-tertiary'}`}>
+              <div
+                className={`tnum text-[14px] font-semibold ${parcel.yieldPct > 0 ? 'text-up' : 'text-text-tertiary'}`}
+              >
                 {parcel.yieldPct > 0 ? `${parcel.yieldPct}%` : '—'}
               </div>
             </div>
@@ -163,7 +185,10 @@ export function ParcelDetail({
                   {soldPct.toFixed(0)}%
                 </span>
                 <div className="flex-1 max-w-20 h-[3px] rounded-full bg-surface-3 overflow-hidden">
-                  <div className="h-full rounded-full bg-brand" style={{ width: `${soldPct}%` }} />
+                  <div
+                    className="h-full rounded-full bg-brand"
+                    style={{ width: `${soldPct}%` }}
+                  />
                 </div>
               </div>
               <div className="tnum text-[9.5px] text-text-tertiary mt-0.5">
@@ -179,13 +204,25 @@ export function ParcelDetail({
           </div>
         </div>
 
+        {/* Governance moment — buyout proposals up top, full width */}
+        <div className="mb-5">
+          <BuyoutProposals parcelId={parcel.id} />
+        </div>
+
         {/* Price chart */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-6">
           <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary mb-3">
             Price History
           </div>
-          <PriceChart parcelId={parcel.id} currentPrice={parcel.pricePerShare} totalShares={parcel.totalShares} />
+          <PriceChart
+            parcelId={parcel.id}
+            currentPrice={parcel.pricePerShare}
+            totalShares={parcel.totalShares}
+          />
         </div>
+
+        {/* AI Verification Theater */}
+        <VerificationTheater parcel={parcel} />
 
         {/* AI Valuation */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-6">
@@ -221,21 +258,16 @@ export function ParcelDetail({
           </div>
         </div>
 
-        {/* Confidence meter */}
-        <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mb-6">
-          <ConfidenceMeter
-            score={parcel.confidenceScore}
-            rationale="Document verified, geo-boundaries validated, valuation within market range."
-          />
-        </div>
+        {/* Cap table — stacked bar + per-holder offers */}
+        <ShareDistribution
+          holders={holders}
+          totalShares={parcel.totalShares}
+          pricePerShare={parcel.pricePerShare}
+          onMakeOffer={(target) => setOfferRequest({ target, nonce: Date.now() })}
+        />
 
-        {/* Cap table */}
-        <ShareDistribution holders={holders} totalShares={parcel.totalShares} />
-
-        {/* Buyout Proposals / Governance */}
-        <div className="mt-6">
-          <BuyoutProposals parcelId={parcel.id} />
-        </div>
+        {/* On-chain activity feed for this parcel */}
+        <ParcelActivityFeed parcelName={parcel.name} />
 
         {/* Parcel info */}
         <div className="bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-4 mt-6">
@@ -281,9 +313,9 @@ export function ParcelDetail({
         </div>
       </div>
 
-      {/* Right — context panel (order ticket) */}
+      {/* Middle-right — sticky order ticket */}
       <div className="w-80 border-l border-border-default bg-surface-1/50 p-4 overflow-auto shrink-0">
-        <OrderTicket parcel={parcel} onSuccess={refetchParcel} />
+        <OrderTicket parcel={parcel} onSuccess={refetchParcel} offerRequest={offerRequest} />
 
         {/* Quick acquire CTA */}
         <Link
@@ -292,6 +324,11 @@ export function ParcelDetail({
         >
           Full Parcel Acquisition
         </Link>
+      </div>
+
+      {/* Far-right — AI analyst strip */}
+      <div className="w-60 border-l border-border-default bg-bg-sunken/50 p-3.5 overflow-auto shrink-0 hidden xl:block">
+        <AIAnalyst parcel={parcel} livePrice={sim.livePrice} />
       </div>
     </div>
   )

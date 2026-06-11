@@ -5,16 +5,32 @@ import { useAccount } from 'wagmi'
 import type { ParcelData } from '@/lib/seed-parcels'
 import { useBuyPrimary, useCreateOffer, useCreateListing, useApproveMarketplace, useIsApprovedForAll, useShareBalance } from '@/hooks/useContracts'
 import { CONTRACTS } from '@/lib/contracts'
-import { Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
+import { Loader2, ExternalLink } from 'lucide-react'
 
 type Tab = 'buy' | 'offer' | 'sell'
 
-export function OrderTicket({ parcel, onSuccess }: { parcel: ParcelData; onSuccess?: () => void }) {
+export function OrderTicket({
+  parcel,
+  onSuccess,
+  offerRequest,
+}: {
+  parcel: ParcelData
+  onSuccess?: () => void
+  offerRequest?: { target: string; nonce: number } | null
+}) {
   const { address, isConnected } = useAccount()
   const [tab, setTab] = useState<Tab>('buy')
   const [shares, setShares] = useState(1)
   const [offerPrice, setOfferPrice] = useState(parcel.pricePerShare)
   const [targetHolder, setTargetHolder] = useState(parcel.seller)
+
+  // "Make offer →" from the cap table prefills the ticket (UI wiring only)
+  useEffect(() => {
+    if (offerRequest) {
+      setTab('offer')
+      setTargetHolder(offerRequest.target)
+    }
+  }, [offerRequest])
 
   const buyTx = useBuyPrimary()
   const offerTx = useCreateOffer()
@@ -140,6 +156,23 @@ export function OrderTicket({ parcel, onSuccess }: { parcel: ParcelData; onSucce
             ? `${myBalance?.toString() || '0'} owned`
             : `${parcel.availableShares} available`}
         </div>
+        {/* Depth bar — available supply at listing price */}
+        {tab !== 'sell' && (
+          <div className="mt-1.5">
+            <div className="h-[3px] rounded-full bg-surface-3 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-up/70"
+                style={{
+                  width: `${(parcel.availableShares / parcel.totalShares) * 100}%`,
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-[8.5px] text-text-tertiary mt-0.5 tnum">
+              <span>{parcel.availableShares} sh @ {parcel.pricePerShare} MNT</span>
+              <span>{((parcel.availableShares / parcel.totalShares) * 100).toFixed(0)}% of supply</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Price per share (editable for offer) */}
@@ -190,11 +223,28 @@ export function OrderTicket({ parcel, onSuccess }: { parcel: ParcelData; onSucce
       )}
 
       {/* Total */}
-      <div className="flex items-center justify-between py-3 border-t border-border-subtle mb-4">
+      <div className="flex items-center justify-between py-3 border-t border-border-subtle">
         <span className="text-[11px] text-text-secondary">Total</span>
         <span className="tnum text-[16px] font-semibold text-text-primary">
           {total.toFixed(4)} MNT
         </span>
+      </div>
+
+      {/* Plain-meaning translation */}
+      <div className="text-[10px] text-text-tertiary leading-relaxed mb-4 bg-bg-sunken rounded-[var(--radius-xs)] px-2.5 py-1.5">
+        Own {shares} share{shares > 1 ? 's' : ''} ={' '}
+        <span className="tnum text-text-secondary">
+          {((shares / parcel.totalShares) * 100).toFixed(2)}%
+        </span>{' '}
+        of this land
+        {parcel.yieldPct > 0 && (
+          <>
+            {' '}· est. yield{' '}
+            <span className="tnum text-up">
+              {((shares * parcel.pricePerShare * parcel.yieldPct) / 100).toFixed(4)} MNT/yr
+            </span>
+          </>
+        )}
       </div>
 
       {/* Submit */}
@@ -210,9 +260,50 @@ export function OrderTicket({ parcel, onSuccess }: { parcel: ParcelData; onSucce
         }`}
       >
         {isPending && <Loader2 size={14} className="animate-spin" />}
-        {activeTx.isSuccess && <CheckCircle2 size={14} />}
+        {activeTx.isSuccess && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M4 12.5l5.5 5.5L20 7"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="draw-path"
+            />
+          </svg>
+        )}
         {buttonLabel()}
       </button>
+
+      {/* Transaction lifecycle */}
+      {(isPending || activeTx.isSuccess) && (
+        <div className="flex items-center justify-between mt-3 font-mono text-[9px]">
+          {(
+            [
+              ['Signing', activeTx.isPending, true],
+              ['Submitted', activeTx.isConfirming, activeTx.isConfirming || activeTx.isSuccess],
+              ['Confirmed on Mantle', false, activeTx.isSuccess],
+            ] as [string, boolean, boolean][]
+          ).map(([label, active, reached], i) => (
+            <span key={label} className="flex items-center gap-1.5">
+              {i > 0 && <span className="text-border-strong mx-1">→</span>}
+              <span
+                className={
+                  reached
+                    ? active
+                      ? 'text-accent-amber animate-pulse'
+                      : 'text-up'
+                    : 'text-text-tertiary'
+                }
+              >
+                {reached && !active && '✓ '}
+                {label}
+                {active && '…'}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Tx hash link */}
       {activeTx.hash && (

@@ -10,9 +10,13 @@ type PricePoint = {
   type: string
 }
 
+type Range = '1D' | '1W' | '1M' | 'ALL'
+const RANGE_FRACTION: Record<Range, number> = { '1D': 0.25, '1W': 0.5, '1M': 0.75, ALL: 1 }
+
 export function PriceChart({ parcelId, currentPrice, totalShares }: { parcelId: number; currentPrice: number; totalShares?: number }) {
   const [points, setPoints] = useState<PricePoint[]>([])
   const [loading, setLoading] = useState(true)
+  const [range, setRange] = useState<Range>('ALL')
 
   useEffect(() => {
     setLoading(true)
@@ -41,7 +45,9 @@ export function PriceChart({ parcelId, currentPrice, totalShares }: { parcelId: 
       price: parseFloat((p.price * demandMultiplier).toFixed(6)),
     })
   }
-  const allPoints = adjustedPoints
+  // Timeframe pills are a client-side view window over the same trade data
+  const windowSize = Math.max(2, Math.ceil(adjustedPoints.length * RANGE_FRACTION[range]))
+  const allPoints = adjustedPoints.slice(-windowSize)
 
   if (loading) {
     return (
@@ -108,8 +114,23 @@ export function PriceChart({ parcelId, currentPrice, totalShares }: { parcelId: 
           {isUp ? '+' : ''}{changePct.toFixed(1)}%
         </span>
       </div>
-      <div className="absolute top-2 right-3 z-10 text-[9px] text-text-tertiary">
-        {allPoints.length} trades
+      <div className="absolute top-2 right-3 z-10 flex items-center gap-2">
+        <div className="flex bg-surface-2/80 rounded-[var(--radius-xs)] overflow-hidden">
+          {(['1D', '1W', '1M', 'ALL'] as Range[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${
+                range === r
+                  ? 'bg-brand text-white'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <span className="text-[9px] text-text-tertiary tnum">{allPoints.length} pts</span>
       </div>
 
       {/* SVG Chart */}
