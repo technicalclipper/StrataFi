@@ -9,10 +9,12 @@ import {
   Target,
   Activity,
   ShieldCheck,
+  BarChart2,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/', icon: Map, label: 'Map' },
+  { href: '/markets', icon: BarChart2, label: 'Markets' },
   { href: '/portfolio', icon: Briefcase, label: 'Portfolio' },
   { href: '/list', icon: PlusCircle, label: 'List Asset' },
   { href: '/acquire', icon: Target, label: 'Acquire' },
