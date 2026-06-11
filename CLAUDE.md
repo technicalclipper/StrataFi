@@ -28,7 +28,8 @@ Real-world **land parcels** (agricultural, commercial, residential plots). Ancho
 6. **Acquisition strategist** — for full-parcel acquisition: ranks holders by sell-probability, suggests per-holder offer prices, computes cheapest path to 51%.
 
 ### How it lives on Mantle
-All ownership, transfers, escrow, yield distribution, and governance are smart contracts on Mantle. Mantle is chosen for: EVM equivalence, very low L2 gas (micro-trades of fractional shares are economically viable), and fast finality. Every financial action is atomic and on-chain.
+All ownership, transfers, escrow, yield distribution, and governance are smart contracts on Mantle. Mantle is chosen for: EVM equivalence, very low L2 gas (micro-trades of fractional shares are 
+ viable), and fast finality. Every financial action is atomic and on-chain.
 
 ---
 
