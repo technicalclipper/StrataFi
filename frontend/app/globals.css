@@ -182,3 +182,66 @@ body {
   .ticker-tape { animation: none; }
   .tick-up, .tick-down { animation: none; }
 }
+
+/* Sonar ripple — live transaction spark on the map */
+@keyframes sonar {
+  0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+}
+.sonar-ring {
+  animation: sonar 1.2s ease-out forwards;
+}
+
+/* Live feed entry slide-in */
+@keyframes feed-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+.feed-in { animation: feed-in 300ms var(--ease-out); }
+
+/* Typewriter caret */
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.caret { animation: caret-blink 1s step-end infinite; }
+
+/* Boot terminal lines */
+@keyframes boot-line {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.boot-line { animation: boot-line 300ms var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sonar-ring, .feed-in, .boot-line, .caret { animation: none; }
+}
+
+/* Self-drawing success check */
+@keyframes draw-path {
+  to { stroke-dashoffset: 0; }
+}
+.draw-path {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: draw-path 600ms var(--ease-out) 100ms forwards;
+}
+
+/* Verification theater bounding box draw */
+@keyframes bbox-draw {
+  from { opacity: 0; transform: scale(1.15); }
+  to { opacity: 1; transform: scale(1); }
+}
+.bbox-draw { animation: bbox-draw 350ms var(--ease-out) both; }
+
+/* Geo-check flash: red probe then settle */
+@keyframes geo-probe {
+  0% { stroke: var(--down); opacity: 0.9; }
+  60% { stroke: var(--down); opacity: 0.4; }
+  100% { stroke: var(--up); opacity: 1; }
+}
+.geo-probe { animation: geo-probe 1.4s ease-in-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .draw-path, .bbox-draw, .geo-probe { animation: none; stroke-dashoffset: 0; }
+}
